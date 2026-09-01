@@ -3,9 +3,13 @@ title = "SDP Studio Gitleaks configuration"
 [extend]
 useDefault = true
 
-[[allowlists]]
-description = "Synthetic authentication signing keys used only by storage API tests"
-stopwords = [
-  "rbac-signing-key-123456",
-  "rbac-ws-signing-key-123",
-]
+[[rules]]
+id = "generic-api-key"
+
+  [[rules.allowlists]]
+  description = "Synthetic SDP Studio signing keys in storage API tests"
+  regexTarget = "line"
+  regexes = [
+    '''SDPSTUDIO_AUTH_SIGNING_KEY.*rbac-signing-key-123456''',
+    '''SDPSTUDIO_AUTH_SIGNING_KEY.*rbac-ws-signing-key-123''',
+  ]
