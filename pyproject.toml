@@ -51,7 +51,7 @@ include-package-data = true
 sdpstudio_server = ["static/*", "static/react/*", "static/react/assets/*", "examples/retail-etl/*", "examples/retail-etl/.sdpstudio/pipelines/*", "examples/retail-etl/data/*"]
 
 [tool.pytest.ini_options]
-pythonpath = ["python"]
+pythonpath = [".", "python"]
 testpaths = ["tests"]
 addopts = "-q"
 markers = ["databricks_live: optional qualification requiring a configured Databricks workspace"]
