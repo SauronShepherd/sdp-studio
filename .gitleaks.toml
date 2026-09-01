@@ -1,0 +1,11 @@
+title = "SDP Studio Gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Synthetic authentication signing keys used only by tests"
+regexes = [
+  '''rbac-signing-key-123456''',
+  '''rbac-ws-signing-key-123''',
+]
