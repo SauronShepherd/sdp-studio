@@ -41,9 +41,7 @@ class ServerSettings:
         if public_url:
             parsed = urlsplit(public_url)
             if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-                raise ValueError(
-                    "SDPSTUDIO_PUBLIC_URL must be an absolute http:// or https:// URL"
-                )
+                raise ValueError("SDPSTUDIO_PUBLIC_URL must be an absolute http:// or https:// URL")
             public_scheme = parsed.scheme
         explicit_cookie_secure = os.environ.get("SDPSTUDIO_COOKIE_SECURE", "").strip()
         if explicit_cookie_secure not in {"", "0", "1"}:
