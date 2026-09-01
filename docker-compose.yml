@@ -1,0 +1,50 @@
+services:
+  server:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+      target: server
+    ports:
+      - "8787:8787"
+    volumes:
+      - sdpstudio-data:/data
+    environment:
+      SDPSTUDIO_DATA_ROOT: /data
+      SDPSTUDIO_DATABASE_URL: postgresql://sdpstudio:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD before starting SDP Studio}@postgres:5432/sdpstudio
+      SDPSTUDIO_AUTH_TOKEN: ${SDPSTUDIO_AUTH_TOKEN:?Set SDPSTUDIO_AUTH_TOKEN before starting SDP Studio}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+      target: worker
+    volumes:
+      - sdpstudio-data:/data
+    environment:
+      SDPSTUDIO_DATA_ROOT: /data
+      SDPSTUDIO_DATABASE_URL: postgresql://sdpstudio:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD before starting SDP Studio}@postgres:5432/sdpstudio
+      SDPSTUDIO_AUTH_TOKEN: ${SDPSTUDIO_AUTH_TOKEN:?Set SDPSTUDIO_AUTH_TOKEN before starting SDP Studio}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["worker", "--runs-only"]
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: sdpstudio
+      POSTGRES_USER: sdpstudio
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD before starting SDP Studio}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sdpstudio -d sdpstudio"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+volumes:
+  sdpstudio-data: {}
+  postgres-data: {}

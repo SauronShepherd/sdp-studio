@@ -1,0 +1,20 @@
+name: Optional Databricks qualification
+
+on:
+  workflow_dispatch:
+
+jobs:
+  databricks-live:
+    if: ${{ secrets.SDPSTUDIO_DATABRICKS_WORKSPACE_URL != '' && secrets.SDPSTUDIO_DATABRICKS_TOKEN != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -e '.[dev,databricks]'
+      - name: Run live provider qualification
+        env:
+          SDPSTUDIO_DATABRICKS_WORKSPACE_URL: ${{ secrets.SDPSTUDIO_DATABRICKS_WORKSPACE_URL }}
+          SDPSTUDIO_DATABRICKS_TOKEN: ${{ secrets.SDPSTUDIO_DATABRICKS_TOKEN }}
+        run: pytest -m databricks_live tests/test_databricks_live.py

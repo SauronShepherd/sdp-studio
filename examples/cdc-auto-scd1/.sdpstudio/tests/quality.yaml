@@ -1,0 +1,7 @@
+checks:
+  - id: customer-id-present
+    type: quality.column_rule
+    mode: post-run
+    config:
+      column: id
+      condition: not_null

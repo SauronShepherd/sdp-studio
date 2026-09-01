@@ -1,0 +1,18 @@
+version: 1
+checks:
+  - id: orders-have-ids
+    type: quality.column_rule
+    mode: preview
+    config:
+      column: order_id
+      condition: not_null
+  - id: orders-unique
+    type: quality.uniqueness
+    mode: post-run
+    config:
+      columns: [order_id]
+  - id: orders-row-count
+    type: quality.row_count_range
+    mode: scheduled
+    config:
+      minimum: 1

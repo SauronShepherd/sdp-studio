@@ -1,0 +1,64 @@
+stages:
+  - test
+  - security
+
+python:
+  stage: test
+  image: python:3.12
+  script:
+    - pip install -e '.[dev]'
+    - ruff check python tests
+    - ruff format --check python tests
+    - mypy
+    - pytest
+
+web:
+  stage: test
+  image: node:22
+  before_script:
+    - corepack enable
+    - pnpm install --frozen-lockfile
+  script:
+    - pnpm --filter @sdpstudio/web lint
+    - pnpm --filter @sdpstudio/web test
+    - pnpm --filter @sdpstudio/web typecheck
+    - pnpm --filter @sdpstudio/web build
+
+package:
+  stage: test
+  image: python:3.12
+  before_script:
+    - apt-get update && apt-get install -y nodejs npm
+    - corepack enable
+    - corepack prepare pnpm@9 --activate
+    - pnpm install --frozen-lockfile
+  script:
+    - pip install build
+    - python -m build --wheel --sdist --no-isolation
+    - python scripts/sbom.py --output dist/sbom.cdx.json
+    - python scripts/license_gate.py dist/sbom.cdx.json
+
+performance:
+  stage: test
+  image: python:3.12
+  script:
+    - pip install -e .
+    - PYTHONPATH=python python scripts/benchmark.py --output dist/benchmark.json
+  artifacts:
+    paths:
+      - dist/benchmark.json
+
+secret_scan:
+  stage: security
+  image: zricethezav/gitleaks:latest
+  script:
+    - gitleaks detect --source . --no-banner --redact
+
+dependency_scan:
+  stage: security
+  image: python:3.12
+  script:
+    - pip install -e . pip-audit
+    - pip-audit
+    - apt-get update && apt-get install -y nodejs npm
+    - npm audit --prefix web --omit=dev

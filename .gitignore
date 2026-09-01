@@ -1,0 +1,15 @@
+.venv/
+.venv-spark312/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+.sdpstudio-data/
+.DS_Store
+web/node_modules/
+node_modules/
+dist/

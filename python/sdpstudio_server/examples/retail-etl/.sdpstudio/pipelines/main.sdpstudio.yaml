@@ -1,0 +1,48 @@
+schemaVersion: 1
+pipelineId: 01M0MG1JGNC6EMC21CCEHZJPKM
+name: retail-etl
+revision: 0
+nodes:
+  - id: 01M0MG1JGN54M4VS1WA4KEVRCN
+    type: source.file
+    operatorVersion: 1
+    position: {x: 80, y: 180}
+    config:
+      path: data/orders.csv
+      format: csv
+      streaming: false
+      options:
+        header: "true"
+        inferSchema: "true"
+  - id: 01M0MG1JGNH7DKFXSFQMSK8P08
+    type: transform.filter
+    operatorVersion: 1
+    position: {x: 350, y: 180}
+    config:
+      expression: "status = 'COMPLETE'"
+  - id: 01M0MG1JGNSFAWDV3J82XY6PCG
+    type: transform.select
+    operatorVersion: 1
+    position: {x: 620, y: 180}
+    config:
+      columns:
+        - order_id
+        - customer_id
+        - amount
+        - order_ts
+  - id: 01M0MG1JGNW00X99CRFKZ21DGB
+    type: dataset.materialized_view
+    operatorVersion: 1
+    position: {x: 890, y: 180}
+    config:
+      name: complete_orders
+edges:
+  - id: 01M0MG1JGNCYHKYZ6Y5GSRKWSB
+    from: {node: 01M0MG1JGN54M4VS1WA4KEVRCN, port: out}
+    to: {node: 01M0MG1JGNH7DKFXSFQMSK8P08, port: in}
+  - id: 01M0MG1JGNKARNZ3MR7GB9RTN6
+    from: {node: 01M0MG1JGNH7DKFXSFQMSK8P08, port: out}
+    to: {node: 01M0MG1JGNSFAWDV3J82XY6PCG, port: in}
+  - id: 01M0MG1JGNBTTNH8K0XQWGTHGT
+    from: {node: 01M0MG1JGNSFAWDV3J82XY6PCG, port: out}
+    to: {node: 01M0MG1JGNW00X99CRFKZ21DGB, port: in}

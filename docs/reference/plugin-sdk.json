@@ -1,0 +1,21 @@
+{
+  "api_version": "v1",
+  "compatibility": "Plugins requiring a newer SDK or unknown API version are disabled at startup.",
+  "entry_point_groups": {
+    "catalog": "sdpstudio.catalogs",
+    "diagnostic-rule-pack": "sdpstudio.diagnostic_rule_packs",
+    "git-provider": "sdpstudio.git_providers",
+    "importer": "sdpstudio.importers",
+    "operator": "sdpstudio.operator_definitions",
+    "runtime-adapter": "sdpstudio.runtime_adapters"
+  },
+  "manifest": {
+    "api_version": "string (required; v1)",
+    "capabilities": "array[string] (required)",
+    "license": "string (required)",
+    "min_sdpstudio_version": "semver (optional; defaults to 0.0.0)",
+    "plugin_version": "semver (required)"
+  },
+  "schema": 1,
+  "sdk_version": "0.1.0"
+}

@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="color-scheme" content="dark light" />
+  <title>SDP Studio — Visual Pipelines for Apache Spark</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">SDP Studio</span><span class="brand-sub">Visual Pipelines for Apache Spark</span></div>
+      <div class="project-controls">
+        <select id="projectSelect" aria-label="Project"></select>
+        <button id="newProjectBtn" class="ghost">New</button>
+        <button id="cloneProjectBtn" class="ghost">Clone</button>
+        <span id="branchBadge" class="badge muted">no git</span>
+      </div>
+      <div class="run-controls">
+        <select id="runtimeSelect" aria-label="Runtime profile" title="Execution runtime"></select>
+        <button id="newRuntimeBtn" class="ghost" title="Add runtime profile">+</button>
+        <span id="runtimeBadge" class="badge muted">Runtime checking…</span>
+        <button id="validateBtn">Validate</button>
+        <button id="generateBtn">Generate</button>
+        <button id="dryRunBtn" class="accent-2">Dry run</button>
+        <button id="runBtn" class="primary">Run</button>
+      </div>
+    </header>
+
+    <main class="main-grid">
+      <nav class="rail" aria-label="Activities">
+        <button data-activity="operators" class="active" title="Operators"><span>OP</span></button>
+        <button data-activity="git" title="Git"><span>GT</span></button>
+        <button data-activity="runs" title="Runs"><span>RN</span></button>
+        <button data-activity="history" title="Local history"><span>HX</span></button>
+      </nav>
+
+      <aside class="left-panel">
+        <section id="activityOperators" class="activity active">
+          <div class="panel-title">Operators</div>
+          <input id="operatorSearch" class="search" placeholder="Search operators…" />
+          <div id="operatorPalette"></div>
+        </section>
+        <section id="activityGit" class="activity">
+          <div class="panel-title">Source Control</div>
+          <div id="gitPanel" class="panel-content"></div>
+        </section>
+        <section id="activityRuns" class="activity">
+          <div class="panel-title">Run History</div>
+          <div id="runsPanel" class="panel-content"></div>
+        </section>
+        <section id="activityHistory" class="activity">
+          <div class="panel-title">Local History</div>
+          <div id="historyPanel" class="panel-content"></div>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <div class="tabs">
+          <button data-tab="canvas" class="active">Canvas</button>
+          <button data-tab="code">Generated Code</button>
+          <button data-tab="debug">Debug Lab</button>
+          <div class="tabs-spacer"></div>
+          <button id="undoBtn" class="icon-btn" title="Undo">Undo</button>
+          <button id="redoBtn" class="icon-btn" title="Redo">Redo</button>
+          <button id="layoutBtn" class="icon-btn" title="Auto layout">Layout</button>
+          <button id="fitBtn" class="icon-btn" title="Fit">Fit</button>
+        </div>
+
+        <div id="tabCanvas" class="tab-pane active">
+          <div id="canvasViewport" class="canvas-viewport">
+            <div id="canvasWorld" class="canvas-world">
+              <svg id="edgeLayer" class="edge-layer"></svg>
+              <div id="nodeLayer" class="node-layer"></div>
+            </div>
+            <div id="emptyCanvas" class="empty-canvas">
+              <h2>Design an SDP pipeline visually</h2>
+              <p>Drag an operator from the palette. Connect output ports to input ports. Generated code remains ordinary Apache Spark SDP Python.</p>
+            </div>
+            <div class="canvas-tools">
+              <button id="zoomOut">−</button><span id="zoomLabel">100%</span><button id="zoomIn">+</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="tabCode" class="tab-pane">
+          <div class="code-toolbar"><span>transformations/generated.py</span><button id="copyCodeBtn">Copy</button></div>
+          <pre id="codeView" class="code-view"></pre>
+        </div>
+
+        <div id="tabDebug" class="tab-pane">
+          <div class="debug-grid">
+            <section class="debug-card"><h3>Pipeline Plan</h3><div id="debugPlan"></div></section>
+            <section class="debug-card"><h3>Row Trace</h3><div id="rowTrace"></div></section>
+            <section class="debug-card wide"><h3>Execution Health</h3><div id="executionHealth"><div class="muted-text">Run the pipeline with Spark event logging to inspect stage skew and I/O.</div></div></section>
+            <section class="debug-card wide"><h3>Run Comparison</h3><div id="runCompare"></div></section>
+          </div>
+        </div>
+
+        <div class="bottom-panel">
+          <div class="bottom-tabs"><button data-bottom="problems" class="active">Problems <span id="problemCount" class="count">0</span></button><button data-bottom="preview">Data Preview</button><button data-bottom="output">Output</button></div>
+          <div id="problemsView" class="bottom-content active"></div>
+          <div id="previewView" class="bottom-content preview-content"><div class="muted-text">Select a node and choose Preview.</div></div>
+          <pre id="outputView" class="bottom-content"></pre>
+        </div>
+      </section>
+
+      <aside class="inspector">
+        <div class="panel-title">Inspector</div>
+        <div id="inspectorContent" class="panel-content"><div class="muted-text">Select a node to configure it.</div></div>
+      </aside>
+    </main>
+
+    <footer class="statusbar">
+      <span id="saveState">Ready</span>
+      <span id="selectionState">No selection</span>
+      <span class="spacer"></span>
+      <span>Portable OSS mode</span>
+      <span id="collabState">Collaboration: connecting</span>
+      <span id="sparkState">Spark: not probed</span>
+    </footer>
+  </div>
+
+  <dialog id="newProjectDialog">
+    <form method="dialog" id="newProjectForm">
+      <h2>Create project</h2>
+      <label>Name<input id="newProjectName" value="retail-pipeline" required /></label>
+      <label class="check"><input id="newProjectExample" type="checkbox" checked /> Start from productive retail example</label>
+      <div class="dialog-actions"><button value="cancel">Cancel</button><button id="createProjectSubmit" value="default" class="primary">Create</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="cloneProjectDialog">
+    <form method="dialog" id="cloneProjectForm">
+      <h2>Clone SDP Studio project</h2>
+      <label>Name<input id="cloneProjectName" value="team-pipeline" required /></label>
+      <label>Git remote<input id="cloneProjectRemote" placeholder="https://github.com/org/repo.git" required /></label>
+      <label>Branch (optional)<input id="cloneProjectBranch" placeholder="main" /></label>
+      <p class="muted-text">The repository must already contain <code>.sdpstudio/project.yaml</code> and <code>.sdpstudio/pipelines/main.sdpstudio.yaml</code>. HTTPS, SSH and SCP-style Git remotes are supported.</p>
+      <div class="dialog-actions"><button value="cancel">Cancel</button><button value="default" class="primary">Clone</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="newRuntimeDialog">
+    <form method="dialog" id="newRuntimeForm">
+      <h2>Add runtime profile</h2>
+      <label>Name<input id="newRuntimeName" value="Remote Spark" required /></label>
+      <label>Adapter
+        <select id="newRuntimeAdapter">
+          <option value="spark-connect">Spark Connect</option>
+          <option value="kubernetes">Kubernetes</option>
+          <option value="databricks-connect">Databricks Connect</option>
+          <option value="local">Local Spark</option>
+        </select>
+      </label>
+      <label>Configuration JSON<textarea id="newRuntimeConfig" rows="8">{"remote_env":"SPARK_REMOTE"}</textarea></label>
+      <p class="muted-text">Do not store tokens here. Point to environment variables such as <code>SPARK_REMOTE</code>. Kubernetes profiles require master, image and storage_uri.</p>
+      <div class="dialog-actions"><button value="cancel">Cancel</button><button value="default" class="primary">Add runtime</button></div>
+    </form>
+  </dialog>
+
+  <script src="/static/app.js" type="module"></script>
+</body>
+</html>

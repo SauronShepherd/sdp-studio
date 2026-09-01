@@ -1,0 +1,12 @@
+stages: [validate]
+
+sdpstudio-validate:
+  stage: validate
+  image: python:3.12
+  before_script:
+    - pip install "sdpstudio[dev]"
+  script:
+    - sdpstudio validate "$SDPSTUDIO_PROJECT_ID"
+    - sdpstudio generate "$SDPSTUDIO_PROJECT_ID" --check
+  variables:
+    SDPSTUDIO_PROJECT_ID: "${SDPSTUDIO_PROJECT_ID}"

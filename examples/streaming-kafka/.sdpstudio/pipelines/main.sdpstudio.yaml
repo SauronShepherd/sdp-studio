@@ -1,0 +1,37 @@
+schemaVersion: 1
+pipelineId: 01M0MG1JGNKAFKASTREAM000000
+name: streaming-kafka
+revision: 0
+nodes:
+  - id: kafka-source
+    type: source.kafka
+    operatorVersion: 1
+    position: {x: 80, y: 180}
+    config:
+      subscribe: orders
+      bootstrapServers: kafka:9092
+      streaming: true
+  - id: filter-orders
+    type: transform.filter
+    operatorVersion: 1
+    position: {x: 390, y: 180}
+    config:
+      expression: "amount > 0"
+      streaming: true
+  - id: kafka-sink
+    type: sink.external
+    operatorVersion: 1
+    position: {x: 720, y: 180}
+    config:
+      name: valid_orders
+      format: kafka
+      options:
+        topic: valid-orders
+        checkpointLocation: .sdpstudio/runtime/checkpoints/valid-orders
+edges:
+  - id: kafka-edge-filter
+    from: {node: kafka-source, port: out}
+    to: {node: filter-orders, port: in}
+  - id: kafka-edge-sink
+    from: {node: filter-orders, port: out}
+    to: {node: kafka-sink, port: in}

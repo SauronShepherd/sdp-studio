@@ -1,0 +1,87 @@
+# SDP Studio diagnostic rule pack. The runtime ships the same safe defaults;
+# this file is the human-editable reference for extending provider packs.
+- id: spark.analysis.unresolved-column
+  match:
+    errorClass: "UNRESOLVED_COLUMN.*"
+  message: "A referenced column cannot be resolved."
+  checks:
+    - "Compare the node input schema with the expression."
+  remediation: "Check spelling, aliases, and the upstream schema."
+- id: spark.analysis.unresolved-table
+  match:
+    errorClass: "TABLE_OR_VIEW_NOT_FOUND.*"
+  message: "The referenced table or view cannot be found."
+  checks:
+    - "Verify catalog, namespace, and table permissions."
+  remediation: "Check the runtime catalog and source configuration."
+- id: spark.streaming-checkpoint
+  match:
+    message: "(?i).*checkpoint.*"
+  message: "The streaming checkpoint configuration needs attention."
+  checks:
+    - "Confirm the checkpoint path is durable and unique for this query."
+  remediation: "Use a writable, shared checkpoint path and avoid reusing it across incompatible graphs."
+- id: spark.kubernetes-image-pull
+  match:
+    message: "(?i).*(imagepullbackoff|errimagepull).*"
+  message: "Kubernetes cannot pull the configured Spark image."
+  checks:
+    - "Inspect image name, registry credentials, and namespace pull-secret bindings."
+  remediation: "Verify the image exists and configure an allowlisted image pull secret."
+- id: spark.analysis.type-mismatch
+  match:
+    errorClass: "DATATYPE_MISMATCH.*"
+  message: "An expression has an incompatible data type."
+  checks:
+    - "Compare expression operands with the input schema types."
+  remediation: "Cast the value explicitly or select an operator with compatible types."
+- id: spark.analysis.ambiguous-reference
+  match:
+    errorClass: "AMBIGUOUS_REFERENCE.*"
+  message: "A column reference is ambiguous after a join or projection."
+  checks:
+    - "Inspect duplicate column names from upstream inputs."
+  remediation: "Qualify the reference or rename the duplicate columns."
+- id: sdp.mode-mismatch
+  match:
+    message: "(?i).*(streaming.*batch|batch.*streaming|mode mismatch).*"
+  message: "A streaming and batch boundary is incompatible."
+  checks:
+    - "Verify the source mode and downstream operator contract."
+  remediation: "Use a compatible streaming operator or materialize the boundary."
+- id: sdp.unsupported-action
+  match:
+    message: "(?i).*(unsupported.*(action|operation)|not supported).*"
+  message: "The runtime does not support the requested pipeline action."
+  checks:
+    - "Check runtime capabilities and the selected operator contract."
+  remediation: "Choose a supported action or switch to a compatible runtime."
+- id: spark.session-mutation
+  match:
+    message: '(?i).*(session.*(mutat|changed)|spark[.]conf[.]set).*'
+  message: "Pipeline code mutated shared Spark session state."
+  checks:
+    - "Locate session configuration changes in user-owned code."
+  remediation: "Move settings into the runtime profile or an approved configuration boundary."
+- id: spark.executor-oom
+  match:
+    errorClass: "RESOURCE_EXHAUSTED.*|OUT_OF_MEMORY.*"
+    message: "(?i).*(out.of.memory|java heap|executor.*oom).*"
+  message: "A Spark executor ran out of memory."
+  checks:
+    - "Inspect skew, partition sizes, and wide transformations."
+  remediation: "Reduce partition pressure or increase executor memory within policy."
+- id: spark.connector-missing
+  match:
+    message: "(?i).*(classnotfound|no suitable driver|connector.*(missing|not found)).*"
+  message: "A required Spark connector or provider class is unavailable."
+  checks:
+    - "Verify runtime libraries and connector versions."
+  remediation: "Install the approved connector or select a runtime profile that provides it."
+- id: kubernetes.rbac-denied
+  match:
+    message: "(?i).*(forbidden|rbac|cannot.*(get|list|watch).*pods).*"
+  message: "Kubernetes RBAC denied a required runtime operation."
+  checks:
+    - "Run the configured service-account access probe in the target namespace."
+  remediation: "Grant only the required allowlisted permissions to the runtime service account."

@@ -1,0 +1,18 @@
+stages: [qualify]
+
+qualify:
+  stage: qualify
+  image: python:3.12
+  before_script:
+    - apt-get update && apt-get install -y nodejs npm
+    - corepack enable
+    - corepack prepare pnpm@9 --activate
+    - pip install -e '.[dev]'
+    - pnpm install --frozen-lockfile
+  script:
+    - ruff check python tests
+    - mypy
+    - pytest
+    - pnpm --filter @sdpstudio/web typecheck
+    - pnpm --filter @sdpstudio/web test
+    - pnpm --filter @sdpstudio/web build

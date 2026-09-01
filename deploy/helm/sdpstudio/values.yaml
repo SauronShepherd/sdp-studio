@@ -1,0 +1,30 @@
+image:
+  repository: sdpstudio
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+service:
+  type: ClusterIP
+  port: 8787
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: sdpstudio.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+auth:
+  existingSecret: sdpstudio-auth
+  tokenKey: SDPSTUDIO_AUTH_TOKEN
+resources: {}
+worker:
+  replicas: 1
+database:
+  url: postgresql://sdpstudio:change-me@postgres:5432/sdpstudio
+storage:
+  size: 10Gi
+  storageClassName: ""
+networkPolicy:
+  enabled: false

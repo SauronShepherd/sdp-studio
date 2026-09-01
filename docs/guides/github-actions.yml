@@ -1,0 +1,30 @@
+name: SDP Studio qualification
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pip install -e '.[dev]'
+      - run: pnpm install --frozen-lockfile
+      - run: ruff check python tests
+      - run: mypy
+      - run: pytest
+      - run: pnpm --filter @sdpstudio/web typecheck
+      - run: pnpm --filter @sdpstudio/web test
+      - run: pnpm --filter @sdpstudio/web build

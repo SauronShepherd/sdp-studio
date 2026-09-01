@@ -1,0 +1,37 @@
+name: Release qualification
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  release-qualification:
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pip install -e '.[dev,pipelines]'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @sdpstudio/web exec playwright install --with-deps chromium
+      - name: Run fail-closed release matrix
+        env:
+          SDPSTUDIO_RELEASE_SPARK_CONNECT_REMOTE: ${{ secrets.SDPSTUDIO_RELEASE_SPARK_CONNECT_REMOTE }}
+          SDPSTUDIO_RELEASE_DATABRICKS_WORKSPACE_URL: ${{ secrets.SDPSTUDIO_RELEASE_DATABRICKS_WORKSPACE_URL }}
+          DATABRICKS_CONFIG_PROFILE: sda
+        run: python scripts/qualify.py --release --output dist/qualification-release.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sdpstudio-release-qualification
+          path: dist/qualification-release.json
