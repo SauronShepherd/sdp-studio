@@ -1,8 +1,8 @@
 from pathlib import Path
 
-import pytest
-
 from sdpstudio_server.settings import ServerSettings
+
+import pytest
 
 
 def test_settings_are_typed_and_have_zero_credential_defaults(monkeypatch, tmp_path: Path):
