@@ -4,8 +4,9 @@ title = "SDP Studio Gitleaks configuration"
 useDefault = true
 
 [[allowlists]]
-description = "Synthetic authentication signing keys used only by tests"
+description = "Synthetic authentication signing keys used only by storage API tests"
+regexTarget = "line"
 regexes = [
-  '''rbac-signing-key-123456''',
-  '''rbac-ws-signing-key-123''',
+  '''SDPSTUDIO_AUTH_SIGNING_KEY.*rbac-signing-key-123456''',
+  '''SDPSTUDIO_AUTH_SIGNING_KEY.*rbac-ws-signing-key-123''',
 ]
