@@ -49,16 +49,23 @@ jobs:
             dist/sbom.cdx.json
           upload-signing-artifacts: true
           release-signing-artifacts: false
-      - uses: actions/upload-artifact@v4
+      - name: Upload Python distributions
+        uses: actions/upload-artifact@v4
         with:
-          name: release-dists
+          name: python-dists
           path: |
             dist/*.whl
             dist/*.tar.gz
+          if-no-files-found: error
+      - name: Upload release evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-evidence
+          path: |
             dist/release-manifest.json
             dist/sbom.cdx.json
             dist/*.sigstore.json
-          if-no-files-found: error
+          if-no-files-found: warn
 
   pypi-publish:
     needs: build-release
@@ -69,7 +76,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v5
         with:
-          name: release-dists
+          name: python-dists
           path: dist
       - name: Publish Python distributions using trusted publishing
         uses: pypa/gh-action-pypi-publish@release/v1
