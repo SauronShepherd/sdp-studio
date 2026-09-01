@@ -1,20 +1,29 @@
-# ADR-005: React, XYFlow, and Monaco frontend
+# ADR-005: React, TypeScript, XYFlow, and Monaco frontend
 
-**Context:** SDP Studio needs a browser IDE with a graph canvas, typed ports, source editing,
-keyboard accessibility, and a migration path from the legacy single-file SPA. The selected
-libraries must remain compatible with the server's static asset deployment.
+Status: Accepted
 
-**Alternatives:** We considered retaining the legacy DOM canvas, adopting a canvas-only editor,
-and using a different graph library. Those alternatives either lacked typed graph semantics,
-source-editor capability, or an incremental migration path.
+## Context
 
-**Decision:** The long-term UI uses React with XYFlow for graph editing and Monaco for source editing.
-Stateful server data remains in the API layer and lightweight local component state; additional
-state/query/form libraries are introduced only when a concrete requirement justifies them.
+The production IDE requires a scalable graph canvas, schema-driven inspector, project editor, semantic navigation, collaboration, accessibility, and rich debugging views. The original dependency-light prototype cannot be the long-term production UI.
 
-**Consequences:** The legacy SPA remains only during the documented parity migration. The frontend
-must keep generated OpenAPI types synchronized and preserve an accessible fallback for editor text.
+## Alternatives considered
 
-**Migration/rollback:** New panels are added behind the React entrypoint while the legacy entrypoint
-remains available until parity tests pass. If a dependency becomes unmaintained, its boundary is
-kept behind feature components so the implementation can be replaced without changing API contracts.
+- Continue the handwritten HTML/JavaScript prototype.
+- Use a full-stack SSR React framework.
+- Use React + TypeScript + Vite, XYFlow for the canvas, Monaco for code, and generated API types.
+
+## Decision
+
+The supported frontend is a React/TypeScript SPA built with Vite. XYFlow is a rendering/interaction adapter over the domain graph; it is not the persisted semantic model. Monaco is the code editor. Server DTOs come from generated OpenAPI artifacts.
+
+## Consequences
+
+Canvas state must translate to/from versioned domain documents. Expensive layout/diff work can move to Web Workers. Browser E2E and accessibility tests qualify the production UI. The legacy UI is not maintained as a second product after parity.
+
+## Migration
+
+Reimplement workflows by vertical slice, preserving backend APIs and persisted documents. Remove legacy surfaces only after equivalent React flows pass regression tests.
+
+## Rollback
+
+Individual feature migrations can temporarily fall back to the last working React implementation, but the architecture does not roll back to a permanent dual-frontend model. A replacement frontend stack requires a new ADR and migration plan.

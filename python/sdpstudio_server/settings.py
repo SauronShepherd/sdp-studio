@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,7 @@ class ServerSettings:
     oidc_token_endpoint: str = ""
     oidc_userinfo_endpoint: str = ""
     oidc_jwks_uri: str = ""
+    public_url: str = ""
     cookie_secure: bool = False
 
     @classmethod
@@ -34,6 +36,21 @@ class ServerSettings:
             .expanduser()
             .resolve()
         )
+        public_url = os.environ.get("SDPSTUDIO_PUBLIC_URL", "").strip().rstrip("/")
+        public_scheme = ""
+        if public_url:
+            parsed = urlsplit(public_url)
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                raise ValueError("SDPSTUDIO_PUBLIC_URL must be an absolute http:// or https:// URL")
+            public_scheme = parsed.scheme
+        explicit_cookie_secure = os.environ.get("SDPSTUDIO_COOKIE_SECURE", "").strip()
+        if explicit_cookie_secure not in {"", "0", "1"}:
+            raise ValueError("SDPSTUDIO_COOKIE_SECURE must be 0 or 1 when set")
+        # HTTPS deployment configuration is authoritative and fail-safe: an
+        # explicit `0` cannot downgrade cookies when the public endpoint is
+        # configured as HTTPS.  `1` remains useful for deployments where the
+        # public URL is intentionally not configured.
+        cookie_secure = public_scheme == "https" or explicit_cookie_secure == "1"
         return cls(
             data_root=root,
             database_url=os.environ.get("SDPSTUDIO_DATABASE_URL", "").strip(),
@@ -47,5 +64,6 @@ class ServerSettings:
             oidc_token_endpoint=os.environ.get("SDPSTUDIO_OIDC_TOKEN_ENDPOINT", ""),
             oidc_userinfo_endpoint=os.environ.get("SDPSTUDIO_OIDC_USERINFO_ENDPOINT", ""),
             oidc_jwks_uri=os.environ.get("SDPSTUDIO_OIDC_JWKS_URI", ""),
-            cookie_secure=os.environ.get("SDPSTUDIO_COOKIE_SECURE", "0") == "1",
+            public_url=public_url,
+            cookie_secure=cookie_secure,
         )

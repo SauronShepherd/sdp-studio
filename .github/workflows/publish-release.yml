@@ -1,0 +1,124 @@
+name: Publish release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions: {}
+
+jobs:
+  qualify:
+    uses: ./.github/workflows/release-qualification.yml
+    secrets: inherit
+
+  build-release:
+    needs: qualify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Build distributions and release metadata
+        run: |
+          python -m pip install --upgrade build
+          python -m build --wheel --sdist
+          python scripts/release_manifest.py --root . --output dist/release-manifest.json dist/*.whl dist/*.tar.gz
+          python scripts/sbom.py --output dist/sbom.cdx.json
+      - name: Attest release provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/release-manifest.json
+            dist/sbom.cdx.json
+      - name: Sign release files with Sigstore
+        uses: sigstore/gh-action-sigstore-python@v3.4.0
+        with:
+          inputs: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/release-manifest.json
+            dist/sbom.cdx.json
+          upload-signing-artifacts: true
+          release-signing-artifacts: false
+      - name: Upload Python distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-dists
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+          if-no-files-found: error
+      - name: Upload release evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-evidence
+          path: |
+            dist/release-manifest.json
+            dist/sbom.cdx.json
+            dist/*.sigstore.json
+          if-no-files-found: warn
+
+  pypi-publish:
+    needs: build-release
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: python-dists
+          path: dist
+      - name: Publish Python distributions using trusted publishing
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+
+  publish-containers:
+    needs: qualify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: true
+      matrix:
+        target: [server, worker, runner]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish ${{ matrix.target }} image
+        id: image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/docker/Dockerfile
+          target: ${{ matrix.target }}
+          push: true
+          provenance: mode=max
+          sbom: true
+          tags: ghcr.io/${{ github.repository_owner }}/sdpstudio-${{ matrix.target }}:${{ github.ref_name }}
+      - name: Attest published image
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/sdpstudio-${{ matrix.target }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true

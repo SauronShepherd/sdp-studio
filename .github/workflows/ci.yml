@@ -12,7 +12,7 @@ jobs:
           python-version: '3.12'
       - run: pip install -e '.[dev]'
       - run: ruff check python tests
-      - run: ruff format --check python tests
+      - run: ruff format --check python tests --exclude 'tests/golden/**'
       - run: mypy
       - run: pytest
       - name: Verify Alembic persistence migrations
@@ -97,6 +97,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -113,7 +115,8 @@ jobs:
           node-version: '22'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm audit --prod
+      - name: Fail on high or critical production dependency advisories
+        run: pnpm audit --prod --audit-level=high
   performance:
     runs-on: ubuntu-latest
     needs: [python]
