@@ -1,7 +1,7 @@
 import asyncio
 from pathlib import Path
 
-from sdpstudio_runners.adapters import RunHandle
+from sdpstudio_runners.adapters import RunHandle, RunStatus
 from sdpstudio_server.runtime_dispatch import RuntimeDispatch
 
 
@@ -37,6 +37,10 @@ def test_runtime_dispatch_routes_through_async_adapter_contract(tmp_path: Path):
 
     class Implementation:
         store = Store()
+
+        def cancel(self, run_id):
+            calls.append(("fallback-cancel", run_id))
+            return False
 
     class Adapter:
         async def submit(self, profile, project, run_id, mode, selected):
@@ -115,21 +119,59 @@ def test_runtime_dispatch_resolves_non_local_profile_adapter(tmp_path: Path):
     class Implementation:
         store = Store()
 
+        def cancel(self, run_id):
+            calls.append(("fallback-cancel", run_id))
+            return False
+
     class Adapter:
         async def submit(self, profile, project, run_id, mode, selected):
-            calls.append((profile["adapter"], project, mode))
-            return RunHandle("remote-run")
+            calls.append(("submit", profile["adapter"], project, mode))
+            return RunHandle("remote-run", external_id="provider-run")
+
+        async def cancel(self, handle):
+            calls.append(("cancel", handle.id, handle.external_id))
+
+        async def status(self, handle):
+            calls.append(("status", handle.id))
+            return RunStatus("running", external_id=handle.external_id)
+
+        async def stream_events(self, handle):
+            calls.append(("events", handle.id))
+            yield {"kind": "status", "state": "running"}
+
+        async def collect_artifacts(self, handle):
+            calls.append(("artifacts", handle.id))
+            return [{"kind": "log", "path": "provider.log"}]
+
+    created = []
+
+    def factory(profile):
+        adapter = Adapter()
+        created.append((profile["adapter"], adapter))
+        return adapter
 
     async def exercise():
-        dispatch = RuntimeDispatch(
-            Implementation(),
-            adapter=None,
-            adapter_factory=lambda profile: Adapter(),
-        )
-        return await dispatch.submit(
+        dispatch = RuntimeDispatch(Implementation(), adapter=None, adapter_factory=factory)
+        submitted = await dispatch.submit(
             "project-1", "incremental", [], profile={"adapter": "databricks"}
         )
+        status = await dispatch.status(submitted.id)
+        events = [event async for event in dispatch.stream_events(submitted.id)]
+        artifacts = await dispatch.collect_artifacts(submitted.id)
+        cancelled = await dispatch.cancel(submitted.id)
+        return submitted, status, events, artifacts, cancelled
 
-    result = asyncio.run(exercise())
-    assert result.id == "remote-run"
-    assert calls == [("databricks", tmp_path, "incremental")]
+    submitted, status, events, artifacts, cancelled = asyncio.run(exercise())
+    assert submitted.id == "remote-run"
+    assert status.state == "running"
+    assert events == [{"kind": "status", "state": "running"}]
+    assert artifacts == [{"kind": "log", "path": "provider.log"}]
+    assert cancelled is True
+    assert len(created) == 1
+    assert calls == [
+        ("submit", "databricks", tmp_path, "incremental"),
+        ("status", "remote-run"),
+        ("events", "remote-run"),
+        ("artifacts", "remote-run"),
+        ("cancel", "remote-run", "provider-run"),
+    ]
