@@ -12,7 +12,7 @@ jobs:
           python-version: '3.12'
       - run: pip install -e '.[dev]'
       - run: ruff check python tests
-      - run: ruff format --check python tests
+      - run: ruff format --check python tests --exclude 'tests/golden/**'
       - run: mypy
       - run: pytest
       - name: Verify Alembic persistence migrations
