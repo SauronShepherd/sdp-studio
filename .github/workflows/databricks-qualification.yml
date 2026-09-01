@@ -5,16 +5,29 @@ on:
 
 jobs:
   databricks-live:
-    if: ${{ secrets.SDPSTUDIO_DATABRICKS_WORKSPACE_URL != '' && secrets.SDPSTUDIO_DATABRICKS_TOKEN != '' }}
     runs-on: ubuntu-latest
+    env:
+      SDPSTUDIO_DATABRICKS_WORKSPACE_URL: ${{ secrets.SDPSTUDIO_DATABRICKS_WORKSPACE_URL }}
+      SDPSTUDIO_DATABRICKS_TOKEN: ${{ secrets.SDPSTUDIO_DATABRICKS_TOKEN }}
     steps:
+      - name: Check optional provider credentials
+        id: credentials
+        shell: bash
+        run: |
+          if [[ -n "$SDPSTUDIO_DATABRICKS_WORKSPACE_URL" && -n "$SDPSTUDIO_DATABRICKS_TOKEN" ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "Databricks credentials are not configured; skipping optional live qualification."
+          fi
       - uses: actions/checkout@v4
+        if: steps.credentials.outputs.available == 'true'
       - uses: actions/setup-python@v5
+        if: steps.credentials.outputs.available == 'true'
         with:
           python-version: '3.12'
       - run: pip install -e '.[dev,databricks]'
+        if: steps.credentials.outputs.available == 'true'
       - name: Run live provider qualification
-        env:
-          SDPSTUDIO_DATABRICKS_WORKSPACE_URL: ${{ secrets.SDPSTUDIO_DATABRICKS_WORKSPACE_URL }}
-          SDPSTUDIO_DATABRICKS_TOKEN: ${{ secrets.SDPSTUDIO_DATABRICKS_TOKEN }}
+        if: steps.credentials.outputs.available == 'true'
         run: pytest -m databricks_live tests/test_databricks_live.py
