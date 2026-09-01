@@ -31,7 +31,9 @@ def test_settings_environment_overrides_explicit_root(monkeypatch, tmp_path: Pat
     assert settings.cookie_secure is True
 
 
-def test_https_public_url_enables_secure_cookies_even_with_false_override(monkeypatch, tmp_path: Path):
+def test_https_public_url_enables_secure_cookies_even_with_false_override(
+    monkeypatch, tmp_path: Path
+):
     monkeypatch.setenv("SDPSTUDIO_PUBLIC_URL", "https://studio.example.test/")
     monkeypatch.setenv("SDPSTUDIO_COOKIE_SECURE", "0")
     settings = ServerSettings.from_env(tmp_path)
@@ -54,7 +56,9 @@ def test_http_public_url_does_not_enable_secure_cookies(monkeypatch, tmp_path: P
         ("SDPSTUDIO_COOKIE_SECURE", "yes"),
     ],
 )
-def test_invalid_https_deployment_settings_fail_closed(monkeypatch, tmp_path: Path, name: str, value: str):
+def test_invalid_https_deployment_settings_fail_closed(
+    monkeypatch, tmp_path: Path, name: str, value: str
+):
     monkeypatch.delenv("SDPSTUDIO_PUBLIC_URL", raising=False)
     monkeypatch.delenv("SDPSTUDIO_COOKIE_SECURE", raising=False)
     monkeypatch.setenv(name, value)
