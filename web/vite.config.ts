@@ -12,5 +12,9 @@ export default defineConfig(({ command }) => ({
     rollupOptions: { input: fileURLToPath(new URL("./react-index.html", import.meta.url)) },
   },
   server: { proxy: { "/api": "http://127.0.0.1:8788", "/ws": { target: "ws://127.0.0.1:8788", ws: true } } },
-  test: { environment: "jsdom", setupFiles: ["./src/test-setup.ts"] },
+  test: {
+    environment: "jsdom",
+    setupFiles: ["./src/test-setup.ts"],
+    include: ["src/**/*.test.{ts,tsx}"],
+  },
 }));
