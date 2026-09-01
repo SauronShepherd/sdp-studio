@@ -1,10 +1,8 @@
 """Qualify Auto CDC against the actual installed Spark 4.2 Python API.
 
-The OSS Spark capability is deliberately discovered instead of inferred from
-version text.  Some Spark 4.2 distributions expose Auto CDC internals/error
-classes without publishing ``pyspark.pipelines.create_auto_cdc_flow``.  In
-that case SDP Studio must report the capability as unavailable rather than
-claiming support because generated source happens to parse.
+The OSS Spark API is deliberately interrogated instead of inferred from
+version text. The generated call must match the real runtime signature so CI
+cannot pass solely because generated source happens to parse.
 """
 
 from __future__ import annotations
@@ -18,7 +16,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
 
 from sdpstudio_codegen.python_backend import generate_python_project
 from sdpstudio_core.models import Edge, Node, PipelineDocument
-from sdpstudio_runners.local import probe_local
 
 
 def main() -> int:
@@ -33,17 +30,10 @@ def main() -> int:
         raise SystemExit(f"Spark 4.2 is required, found {pyspark.__version__}")
 
     api = getattr(pipelines, "create_auto_cdc_flow", None)
-    capability = probe_local().auto_cdc_scd1
-    if api is None:
-        if capability:
-            raise SystemExit(
-                "Runtime probe advertises auto_cdc_scd1 but pyspark.pipelines.create_auto_cdc_flow is absent"
-            )
-        print(f"AUTO_CDC_SPARK_42_UNAVAILABLE version={pyspark.__version__}")
-        return 0
-
     if not callable(api):
-        raise SystemExit("pyspark.pipelines.create_auto_cdc_flow exists but is not callable")
+        raise SystemExit(
+            "Spark 4.2 runtime does not expose callable pyspark.pipelines.create_auto_cdc_flow"
+        )
 
     document = PipelineDocument(
         name="auto-cdc-smoke",
@@ -94,10 +84,6 @@ def main() -> int:
         )
     if not {"target", "keys", "sequence_by"}.issubset(keywords):
         raise SystemExit("generated Auto CDC call is missing target, keys, or sequence_by")
-    if not capability:
-        raise SystemExit(
-            "Spark exposes create_auto_cdc_flow but RuntimeCapabilities.auto_cdc_scd1 is false"
-        )
 
     print(f"AUTO_CDC_SPARK_42_OK version={pyspark.__version__} signature={signature}")
     return 0
