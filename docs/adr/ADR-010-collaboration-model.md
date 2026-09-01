@@ -1,8 +1,29 @@
-# ADR-010: Collaboration merge model
+# ADR-010: CRDT collaboration with serialized repository mutations
 
-**Decision:** The target collaboration model is CRDT-based, while the current MVP uses optimistic revision locking as a transitional compatibility boundary.
+Status: Accepted
 
-**Consequences:** Durable Yjs update replay and browser offline recovery now cover
-the MVP reconnect path. Full multi-device offline merge certification still
-requires browser acceptance tests and persistence migration coverage before the
-optimistic REST revision path can be removed.
+## Context
+
+Team users need concurrent graph/text editing, reconnect recovery, presence, and durable updates. Git operations such as checkout/pull can rewrite many files and cannot safely race live collaborative buffers.
+
+## Alternatives considered
+
+- Last-write-wins optimistic saves only.
+- Operational transformation implemented in-house.
+- Yjs-compatible CRDT document state plus server persistence and explicit Git coordination.
+
+## Decision
+
+Collaborative documents use CRDT semantics for graph/config/text state. Awareness/presence is ephemeral; document updates are durable. Destructive repository mutations acquire a server-side project lock, flush collaborative state, snapshot history, perform Git, reload/reconcile documents, broadcast the result, then release the lock.
+
+## Consequences
+
+Field-level graph updates should avoid replacing whole nodes so concurrent edits merge without data loss. Multi-replica deployment requires shared session/pub-sub state before it is claimed as supported.
+
+## Migration
+
+Existing optimistic documents can initialize CRDT state from their latest durable revision. Git workflows migrate to the coordinated repository-operation service.
+
+## Rollback
+
+Disable collaborative editing and fall back to single-writer optimistic concurrency only after persisting a final snapshot. Never discard unmerged CRDT updates during rollback.
