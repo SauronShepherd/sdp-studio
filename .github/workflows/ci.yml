@@ -15,7 +15,7 @@ jobs:
       - run: ruff check python tests
       - run: ruff format --check --exclude tests/golden python tests
       - run: mypy
-      - run: timeout 90s pytest -vv -o faulthandler_timeout=15
+      - run: timeout --kill-after=5s 90s pytest -vv -o faulthandler_timeout=15
       - name: Verify Alembic persistence migrations
         run: pytest -q tests/test_migrations.py
   web:
