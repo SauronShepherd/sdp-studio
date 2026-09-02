@@ -187,7 +187,9 @@ def branches(path: Path) -> dict[str, Any]:
     current = _git(path, ["branch", "--show-current"], check=False).stdout.strip()
     names = [
         line.strip().lstrip("* ")
-        for line in _git(path, ["branch", "--format=%(refname:short)"], check=False).stdout.splitlines()
+        for line in _git(
+            path, ["branch", "--format=%(refname:short)"], check=False
+        ).stdout.splitlines()
     ]
     return {"current": current, "branches": [n for n in names if n]}
 
@@ -352,9 +354,13 @@ def _validate_remote_url(url: str) -> None:
         if not parsed.hostname:
             raise ValueError("Git remote URL must include a host")
         if parsed.username and value.startswith(("http://", "https://")):
-            raise ValueError("Do not embed credentials in Git remote URLs; use SSH or a credential helper")
+            raise ValueError(
+                "Do not embed credentials in Git remote URLs; use SSH or a credential helper"
+            )
         if parsed.password:
-            raise ValueError("Do not embed credentials in Git remote URLs; use SSH or a credential helper")
+            raise ValueError(
+                "Do not embed credentials in Git remote URLs; use SSH or a credential helper"
+            )
         return
     if re.fullmatch(r"[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[A-Za-z0-9._~/-]+", value):
         return
@@ -373,7 +379,9 @@ def clone(remote_url: str, target: Path, branch: str | None = None) -> dict[str,
     if branch:
         args.extend(["--branch", branch])
     args.extend(["--", remote_url, str(target)])
-    result = subprocess.run(args, check=False, capture_output=True, text=True, shell=False, timeout=180)
+    result = subprocess.run(
+        args, check=False, capture_output=True, text=True, shell=False, timeout=180
+    )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip())
     _git(
