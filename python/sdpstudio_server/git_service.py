@@ -21,9 +21,6 @@ def _bounded_text(value: str) -> str:
 def _git(path: Path, args: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
     disabled_hooks = path / ".sdpstudio" / "disabled-hooks"
     disabled_hooks.parent.mkdir(parents=True, exist_ok=True)
-    # Do not leak application credentials or unrelated process configuration
-    # into repository operations. Preserve only variables Git uses for binary
-    # discovery, locale, and explicitly configured non-secret SSH behavior.
     environment = {
         key: value
         for key, value in os.environ.items()
@@ -95,12 +92,8 @@ def run_context(path: Path) -> dict[str, Any]:
 
 def init(path: Path) -> dict[str, Any]:
     if not (path / ".git").exists():
-        # Pin the initial branch at creation time. Renaming an unborn branch via
-        # `git branch -M` is version-dependent and can silently leave `master`,
-        # which makes subsequent operations that target `main` nondeterministic.
         result = _git(path, ["init", "-b", "main"], check=False)
         if result.returncode != 0:
-            # Compatibility path for older Git versions that predate `init -b`.
             _git(path, ["init"])
             symbolic = _git(path, ["symbolic-ref", "HEAD", "refs/heads/main"], check=False)
             if symbolic.returncode != 0:
@@ -136,7 +129,6 @@ def _validate_ref(ref: str) -> str:
 
 
 def read_blob(path: Path, ref: str, relative_path: str) -> str:
-    """Read a committed file without checking out or mutating the worktree."""
     result = _git(
         path, ["show", f"{_validate_ref(ref)}:{_validate_blob_path(relative_path)}"], check=False
     )
@@ -146,7 +138,6 @@ def read_blob(path: Path, ref: str, relative_path: str) -> str:
 
 
 def blob_diff(path: Path, left: str, right: str, relative_path: str) -> str:
-    """Return a committed blob diff without checkout."""
     result = _git(
         path,
         [
@@ -169,8 +160,6 @@ def commit(path: Path, message: str) -> dict[str, Any]:
     init(path)
     if not message.strip():
         raise ValueError("Commit message must not be empty")
-    # Respect explicit staging. This keeps the commit operation from silently
-    # adding unrelated files in a shared project workspace.
     staged = _git(path, ["diff", "--cached", "--quiet"], check=False)
     if staged.returncode == 0:
         raise ValueError("No staged changes to commit")
@@ -187,191 +176,254 @@ def commit(path: Path, message: str) -> dict[str, Any]:
         ],
         check=False,
     )
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "Unable to commit changes")
-    return status(path)
+    if result.returncode not in (0, 1):
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip())
+    return {"output": (result.stdout + result.stderr).strip(), **status(path)}
 
 
-def stage(path: Path, paths: list[str] | None = None) -> dict[str, Any]:
-    init(path)
-    values = paths or ["."]
-    for value in values:
-        if value.startswith("-"):
-            raise ValueError("Invalid Git path")
-    _git(path, ["add", "--", *values])
-    return status(path)
+def branches(path: Path) -> dict[str, Any]:
+    if not (path / ".git").exists():
+        return {"current": None, "branches": []}
+    current = _git(path, ["branch", "--show-current"], check=False).stdout.strip()
+    names = [
+        line.strip().lstrip("* ")
+        for line in _git(path, ["branch", "--format=%(refname:short)"], check=False).stdout.splitlines()
+    ]
+    return {"current": current, "branches": [n for n in names if n]}
 
 
-def set_remote(path: Path, name: str, url: str) -> dict[str, Any]:
-    init(path)
-    _validate_remote_name(name)
-    _validate_remote_url(url)
-    current = _git(path, ["remote", "get-url", name], check=False)
-    if current.returncode == 0:
-        _git(path, ["remote", "set-url", name, url])
-    else:
-        _git(path, ["remote", "add", name, url])
-    return status(path)
-
-
-def _validate_remote_url(url: str) -> None:
-    value = url.strip()
-    if not value or value.startswith("-"):
-        raise ValueError("Invalid Git remote URL")
-    if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*::", value):
-        raise ValueError("Git remote helpers are not allowed")
-    if re.match(r"^file://", value, re.IGNORECASE) or value.startswith(("/", "./", "../", "~")):
-        raise ValueError("Local Git remotes are not allowed")
-    if re.match(r"^https?://[^/@]+:[^/@]+@", value, re.IGNORECASE):
-        raise ValueError("Embedded credentials are not allowed")
-    if re.match(r"^ssh://", value, re.IGNORECASE):
-        return
-    if re.match(r"^https?://", value, re.IGNORECASE):
-        return
-    if re.match(r"^[^@\s]+@[^:\s]+:[^\s]+$", value):
-        return
-    raise ValueError("Unsupported Git remote URL")
-
-
-def fetch(path: Path, remote: str = "origin") -> dict[str, Any]:
-    _validate_remote_name(remote)
-    result = _git(path, ["fetch", "--prune", "--", remote], check=False)
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "Unable to fetch Git remote")
-    return status(path)
-
-
-def pull(path: Path, remote: str, branch: str) -> dict[str, Any]:
-    _validate_remote_name(remote)
-    _validate_branch_name(branch)
-    result = _git(path, ["pull", "--ff-only", "--", remote, branch], check=False)
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "Unable to pull Git branch")
-    return status(path)
-
-
-def push(path: Path, remote: str = "origin", branch: str | None = None) -> dict[str, Any]:
-    _validate_remote_name(remote)
-    target = branch or status(path)["branch"]
-    _validate_branch_name(str(target))
-    result = _git(path, ["push", "--", remote, str(target)], check=False)
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "Unable to push Git branch")
-    return status(path)
-
-
-def create_branch(path: Path, name: str, start_point: str = "main") -> dict[str, Any]:
-    _validate_branch_name(name)
-    _validate_ref(start_point)
-    result = _git(path, ["switch", "-c", name, start_point], check=False)
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "Unable to create Git branch")
-    return status(path)
+def log(path: Path, limit: int = 50) -> list[dict[str, str]]:
+    if limit < 1 or limit > 500:
+        raise ValueError("Git log limit must be between 1 and 500")
+    if not (path / ".git").exists():
+        return []
+    result = _git(path, ["log", f"-{limit}", "--format=%H%x1f%an%x1f%aI%x1f%s"])
+    bounded_output = _bounded_text(result.stdout)
+    return [
+        dict(zip(("commit", "author", "timestamp", "subject"), parts, strict=True))
+        for line in bounded_output.splitlines()
+        for parts in [line.split("\x1f")]
+        if len(parts) == 4
+    ]
 
 
 def switch_branch(path: Path, name: str) -> dict[str, Any]:
     _validate_branch_name(name)
     result = _git(path, ["switch", name], check=False)
     if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "Unable to switch Git branch")
-    return status(path)
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip())
+    return branches(path)
 
 
-def delete_branch(path: Path, name: str) -> dict[str, Any]:
+def delete_branch(path: Path, name: str, *, force: bool = False) -> dict[str, Any]:
     _validate_branch_name(name)
-    current = str(status(path)["branch"])
-    if current == name:
+    if name == branches(path).get("current"):
         raise ValueError("Cannot delete the current Git branch")
-    result = _git(path, ["branch", "-D", "--", name], check=False)
+    result = _git(path, ["branch", "-D" if force else "-d", name], check=False)
     if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "Unable to delete Git branch")
-    return status(path)
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip())
+    return branches(path)
 
 
-def list_branches(path: Path) -> list[str]:
+def tags(path: Path) -> list[str]:
     if not (path / ".git").exists():
         return []
-    result = _git(path, ["for-each-ref", "--format=%(refname:short)", "refs/heads/"])
+    result = _git(path, ["tag", "--list", "--sort=version:refname"])
     return [line for line in result.stdout.splitlines() if line]
 
 
-def create_tag(path: Path, name: str) -> list[str]:
-    _validate_ref(name)
-    result = _git(path, ["tag", name], check=False)
+def create_tag(path: Path, name: str, message: str | None = None) -> list[str]:
+    _validate_branch_name(name)
+    args = ["tag"]
+    if message:
+        args.extend(["-a", name, "-m", message])
+    else:
+        args.append(name)
+    result = _git(path, args, check=False)
     if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "Unable to create Git tag")
-    return list_tags(path)
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip())
+    return tags(path)
 
 
-def list_tags(path: Path) -> list[str]:
-    result = _git(path, ["tag", "--list"])
-    return [line for line in result.stdout.splitlines() if line]
-
-
-def log(path: Path, limit: int = 50) -> list[dict[str, str]]:
-    if limit < 1 or limit > 200:
-        raise ValueError("Git log limit must be between 1 and 200")
-    if not (path / ".git").exists():
-        return []
-    result = _git(
-        path,
-        [
-            "log",
-            f"-{limit}",
-            "--date=iso-strict",
-            "--pretty=format:%H%x1f%an%x1f%ad%x1f%s",
-        ],
-    )
-    entries = []
-    for line in result.stdout.splitlines():
-        parts = line.split("\x1f", 3)
-        if len(parts) == 4:
-            commit_hash, author, timestamp, subject = parts
-            entries.append(
-                {
-                    "hash": commit_hash,
-                    "author": _bounded_text(author),
-                    "timestamp": timestamp,
-                    "subject": _bounded_text(subject),
-                }
-            )
-    return entries
+def stash(path: Path, action: str, message: str | None = None) -> dict[str, Any] | list[str]:
+    if action == "list":
+        result = _git(path, ["stash", "list"], check=False)
+        return [line for line in result.stdout.splitlines() if line]
+    if action == "create":
+        args = ["stash", "push"]
+        if message:
+            args.extend(["-m", message])
+        result = _git(path, args, check=False)
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or result.stdout.strip())
+        return {"output": (result.stdout + result.stderr).strip(), **status(path)}
+    if action == "apply":
+        result = _git(path, ["stash", "apply"], check=False)
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or result.stdout.strip())
+        return {"output": (result.stdout + result.stderr).strip(), **status(path)}
+    raise ValueError("Unsupported stash action")
 
 
 def conflicts(path: Path) -> list[str]:
+    if not (path / ".git").exists():
+        return []
     result = _git(path, ["diff", "--name-only", "--diff-filter=U"], check=False)
     return [line for line in result.stdout.splitlines() if line]
 
 
-def conflict_versions(path: Path, relative_path: str, limit: int = 200_000) -> dict[str, str]:
-    if limit < 1 or limit > MAX_GIT_TEXT_BYTES:
-        raise ValueError("Conflict version limit must be between 1 and MAX_GIT_TEXT_BYTES")
-    clean = _validate_blob_path(relative_path)
-    values: dict[str, str] = {}
-    for stage, label in ((1, "base"), (2, "ours"), (3, "theirs")):
-        result = _git(path, ["show", f":{stage}:{clean}"], check=False)
-        if result.returncode == 0:
-            encoded = result.stdout.encode("utf-8")
-            if len(encoded) > limit:
-                raise ValueError(f"Conflict {label} version exceeds limit")
-            values[label] = result.stdout
-    return values
+def conflict_versions(path: Path, file_path: str, max_bytes: int = 512 * 1024) -> dict[str, str]:
+    if max_bytes < 1 or max_bytes > MAX_GIT_TEXT_BYTES:
+        raise ValueError(f"Conflict version limit must be between 1 and {MAX_GIT_TEXT_BYTES}")
+    candidate = Path(file_path)
+    if candidate.is_absolute() or ".." in candidate.parts or not file_path.strip():
+        raise ValueError("Invalid conflicted file path")
+    if file_path not in conflicts(path):
+        raise ValueError("File is not currently conflicted")
+    result: dict[str, str] = {}
+    for label, stage in (("ours", "2"), ("theirs", "3")):
+        blob = _git(path, ["show", f":{stage}:{file_path}"], check=False)
+        if blob.returncode != 0:
+            raise RuntimeError(blob.stderr.strip() or "Unable to read conflict stage")
+        encoded = blob.stdout.encode("utf-8", errors="replace")
+        result[label] = encoded[:max_bytes].decode("utf-8", errors="replace")
+    return result
 
 
-def resolve_conflict(path: Path, relative_path: str, strategy: str) -> dict[str, Any]:
-    clean = _validate_blob_path(relative_path)
+def resolve_conflict(path: Path, file_path: str, strategy: str) -> dict[str, Any]:
     if strategy not in {"ours", "theirs"}:
-        raise ValueError("Conflict resolution strategy must be 'ours' or 'theirs'")
-    result = _git(path, ["checkout", f"--{strategy}", "--", clean], check=False)
+        raise ValueError("Conflict strategy must be ours or theirs")
+    candidate = Path(file_path)
+    if candidate.is_absolute() or ".." in candidate.parts or not file_path.strip():
+        raise ValueError("Invalid conflicted file path")
+    if file_path not in conflicts(path):
+        raise ValueError("File is not currently conflicted")
+    result = _git(path, ["checkout", f"--{strategy}", "--", file_path], check=False)
     if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "Unable to resolve Git conflict")
-    _git(path, ["add", "--", clean])
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip())
+    return stage(path, [file_path])
+
+
+def stage(path: Path, paths: list[str] | None = None) -> dict[str, Any]:
+    args = ["add", "--"] + (paths or ["."])
+    result = _git(path, args, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip())
     return status(path)
 
 
-def checkout(path: Path, ref: str) -> dict[str, Any]:
-    _validate_ref(ref)
-    result = _git(path, ["checkout", ref], check=False)
+def unstage(path: Path, paths: list[str] | None = None) -> dict[str, Any]:
+    args = ["restore", "--staged", "--"] + (paths or ["."])
+    result = _git(path, args, check=False)
     if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "Unable to checkout Git revision")
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip())
     return status(path)
+
+
+def create_branch(path: Path, name: str) -> dict[str, Any]:
+    _validate_branch_name(name)
+    init(path)
+    result = _git(path, ["switch", "-c", name], check=False)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip())
+    return branches(path)
+
+
+def remotes(path: Path) -> dict[str, str]:
+    if not (path / ".git").exists():
+        return {}
+    result = _git(path, ["remote", "-v"], check=False)
+    found: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] not in found:
+            found[parts[0]] = parts[1]
+    return found
+
+
+def _validate_remote_url(url: str) -> None:
+    from urllib.parse import urlparse
+
+    value = url.strip()
+    if not value or value.startswith("-") or any(ord(c) < 32 for c in value):
+        raise ValueError("Invalid Git remote URL")
+    if value.startswith(("http://", "https://", "ssh://", "git://")):
+        parsed = urlparse(value)
+        if not parsed.hostname:
+            raise ValueError("Git remote URL must include a host")
+        if parsed.username and value.startswith(("http://", "https://")):
+            raise ValueError("Do not embed credentials in Git remote URLs; use SSH or a credential helper")
+        if parsed.password:
+            raise ValueError("Do not embed credentials in Git remote URLs; use SSH or a credential helper")
+        return
+    if re.fullmatch(r"[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[A-Za-z0-9._~/-]+", value):
+        return
+    raise ValueError(
+        "Unsupported Git remote transport; use HTTPS, SSH, or git:// (local/ext helper URLs are blocked)"
+    )
+
+
+def clone(remote_url: str, target: Path, branch: str | None = None) -> dict[str, Any]:
+    _validate_remote_url(remote_url)
+    if branch:
+        _validate_branch_name(branch)
+    if target.exists():
+        raise ValueError("Clone target already exists")
+    args = ["git", "clone"]
+    if branch:
+        args.extend(["--branch", branch])
+    args.extend(["--", remote_url, str(target)])
+    result = subprocess.run(args, check=False, capture_output=True, text=True, shell=False, timeout=180)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip())
+    _git(
+        target,
+        ["config", "--local", "core.hooksPath", str(target / ".sdpstudio" / "disabled-hooks")],
+    )
+    return status(target)
+
+
+def set_remote(path: Path, name: str, url: str) -> dict[str, str]:
+    _validate_remote_name(name)
+    _validate_remote_url(url)
+    init(path)
+    current = remotes(path)
+    if name in current:
+        result = _git(path, ["remote", "set-url", name, url], check=False)
+    else:
+        result = _git(path, ["remote", "add", name, url], check=False)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip())
+    return remotes(path)
+
+
+def fetch(path: Path, remote: str = "origin") -> dict[str, Any]:
+    _validate_remote_name(remote)
+    result = _git(path, ["fetch", "--prune", remote], check=False)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip())
+    return {"output": (result.stdout + result.stderr).strip(), **status(path)}
+
+
+def pull(path: Path, remote: str = "origin", branch: str | None = None) -> dict[str, Any]:
+    _validate_remote_name(remote)
+    args = ["pull", "--ff-only", remote]
+    if branch:
+        _validate_branch_name(branch)
+        args.append(branch)
+    result = _git(path, args, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip())
+    return {"output": (result.stdout + result.stderr).strip(), **status(path)}
+
+
+def push(path: Path, remote: str = "origin", branch: str | None = None) -> dict[str, Any]:
+    _validate_remote_name(remote)
+    branch = branch or branches(path).get("current")
+    if not branch:
+        raise ValueError("No current branch to push")
+    _validate_branch_name(str(branch))
+    result = _git(path, ["push", "-u", remote, branch], check=False)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip())
+    return {"output": (result.stdout + result.stderr).strip(), **status(path)}
