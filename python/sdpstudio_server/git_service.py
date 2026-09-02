@@ -236,7 +236,13 @@ def tags(path: Path) -> list[str]:
 
 def create_tag(path: Path, name: str, message: str | None = None) -> list[str]:
     _validate_branch_name(name)
-    args = ["tag"]
+    args = [
+        "-c",
+        "user.name=SDP Studio User",
+        "-c",
+        "user.email=sdpstudio@localhost",
+        "tag",
+    ]
     if message:
         args.extend(["-a", name, "-m", message])
     else:
