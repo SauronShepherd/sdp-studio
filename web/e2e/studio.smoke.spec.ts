@@ -101,7 +101,7 @@ test("preserves configured node data after moving, saving, and reloading", async
 test("exposes activity navigation, theme persistence, and live editor status", async ({ page }) => {
   await page.goto("/react-index.html");
   await expect(page.getByRole("navigation", { name: "Workspace sections" })).toBeVisible();
-  await expect(page.getByLabel("Editor status")).toContainText("Default runtime");
+  await expect(page.getByLabel("Editor status")).toContainText("Runtime: Local Spark");
   const theme = page.getByRole("button", { name: "Switch to light theme" });
   await theme.click();
   await expect(page.getByRole("button", { name: "Switch to dark theme" })).toBeVisible();
