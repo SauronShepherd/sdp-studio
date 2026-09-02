@@ -7,7 +7,7 @@
     "build": "vite build",
     "lint": "eslint src vite.config.ts",
     "dev": "vite",
-    "test": "vitest run --exclude e2e/** --pool=forks --poolOptions.forks.singleFork=false --maxWorkers=1 --minWorkers=1 --no-file-parallelism",
+    "test": "vitest run --exclude \"e2e/**\" --pool=forks --poolOptions.forks.singleFork=false --maxWorkers=1 --minWorkers=1 --no-file-parallelism",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit"
   },

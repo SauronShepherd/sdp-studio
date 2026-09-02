@@ -149,6 +149,9 @@ async def execute_queued_local_run(store: DataStore, record: dict[str, Any]) -> 
         store.transition_run(run_id, "submitting", command_json=safe_command)
         secret_env = store.resolve_secret_references(project_id, runtime_profile)
         runtime = LocalRuntime(store)
+        runtime_config = runtime_profile.get("config")
+        if not isinstance(runtime_config, dict):
+            runtime_config = {}
         await runtime._execute(
             run_id,
             project_id,
@@ -156,7 +159,7 @@ async def execute_queued_local_run(store: DataStore, record: dict[str, Any]) -> 
             safe_command,
             temp_spec,
             secret_env,
-            runtime_profile.get("config") or {},
+            runtime_config,
         )
     except Exception as exc:
         if store.get_run(run_id)["status"] not in {
