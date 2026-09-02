@@ -183,23 +183,29 @@ class LocalRuntimeAdapter:
         self._statuses[run_id] = RunStatus("submitted")
 
         async def execute() -> None:
-            process = await asyncio.create_subprocess_exec(
-                *command,
-                cwd=str(project),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-            )
-            self._statuses[run_id] = RunStatus("running")
-            assert process.stdout is not None
-            async for raw_line in process.stdout:
-                await queue.put(
-                    {"run_id": run_id, "line": raw_line.decode(errors="replace").rstrip()}
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    *command,
+                    cwd=str(project),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
                 )
-            exit_code = await process.wait()
-            self._statuses[run_id] = RunStatus(
-                "succeeded" if exit_code == 0 else "failed", str(exit_code)
-            )
-            await queue.put(None)
+                self._statuses[run_id] = RunStatus("running")
+                assert process.stdout is not None
+                async for raw_line in process.stdout:
+                    await queue.put(
+                        {"run_id": run_id, "line": raw_line.decode(errors="replace").rstrip()}
+                    )
+                exit_code = await process.wait()
+                self._statuses[run_id] = RunStatus(
+                    "succeeded" if exit_code == 0 else "failed", str(exit_code)
+                )
+            except asyncio.CancelledError:
+                raise
+            except OSError as exc:
+                self._statuses[run_id] = RunStatus("failed", str(exc))
+            finally:
+                await queue.put(None)
 
         self._tasks[run_id] = asyncio.create_task(execute())
         return RunHandle(run_id)
