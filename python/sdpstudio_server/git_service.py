@@ -40,7 +40,18 @@ def _git(path: Path, args: list[str], check: bool = True) -> subprocess.Complete
     }
     environment["GIT_TERMINAL_PROMPT"] = "0"
     return subprocess.run(
-        ["git", "-C", str(path), "-c", f"core.hooksPath={disabled_hooks}", *args],
+        [
+            "git",
+            "-C",
+            str(path),
+            "-c",
+            f"core.hooksPath={disabled_hooks}",
+            "-c",
+            "user.name=SDP Studio User",
+            "-c",
+            "user.email=sdpstudio@localhost",
+            *args,
+        ],
         check=check,
         capture_output=True,
         text=True,
@@ -163,19 +174,7 @@ def commit(path: Path, message: str) -> dict[str, Any]:
     staged = _git(path, ["diff", "--cached", "--quiet"], check=False)
     if staged.returncode == 0:
         raise ValueError("No staged changes to commit")
-    result = _git(
-        path,
-        [
-            "-c",
-            "user.name=SDP Studio User",
-            "-c",
-            "user.email=sdpstudio@localhost",
-            "commit",
-            "-m",
-            message,
-        ],
-        check=False,
-    )
+    result = _git(path, ["commit", "-m", message], check=False)
     if result.returncode not in (0, 1):
         raise RuntimeError(result.stderr.strip() or result.stdout.strip())
     return {"output": (result.stdout + result.stderr).strip(), **status(path)}
@@ -236,13 +235,7 @@ def tags(path: Path) -> list[str]:
 
 def create_tag(path: Path, name: str, message: str | None = None) -> list[str]:
     _validate_branch_name(name)
-    args = [
-        "-c",
-        "user.name=SDP Studio User",
-        "-c",
-        "user.email=sdpstudio@localhost",
-        "tag",
-    ]
+    args = ["tag"]
     if message:
         args.extend(["-a", name, "-m", message])
     else:
