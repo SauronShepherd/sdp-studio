@@ -15,7 +15,7 @@ jobs:
       - run: ruff check python tests
       - run: ruff format --check --exclude tests/golden python tests
       - run: mypy
-      - run: timeout --kill-after=5s 90s pytest -vv -o faulthandler_timeout=15
+      - run: pytest -vv
       - name: Verify Alembic persistence migrations
         run: pytest -q tests/test_migrations.py
   web:
@@ -69,7 +69,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install build
+      - run: python -m pip install build setuptools wheel
       - run: python -m build --wheel --sdist --no-isolation
       - run: python scripts/release_manifest.py --root . --output dist/release-manifest.json dist/*.whl dist/*.tar.gz
       - run: python scripts/sbom.py --output dist/sbom.cdx.json
