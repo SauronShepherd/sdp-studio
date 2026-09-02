@@ -5,6 +5,7 @@ on:
 jobs:
   python:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -14,7 +15,7 @@ jobs:
       - run: ruff check python tests
       - run: ruff format --check --exclude tests/golden python tests
       - run: mypy
-      - run: pytest
+      - run: pytest -vv
       - name: Verify Alembic persistence migrations
         run: pytest -q tests/test_migrations.py
   web:
