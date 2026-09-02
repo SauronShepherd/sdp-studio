@@ -12,7 +12,7 @@ jobs:
           python-version: '3.12'
       - run: pip install -e '.[dev]'
       - run: ruff check python tests
-      - run: ruff format --check python tests
+      - run: ruff format --check --exclude tests/golden python tests
       - run: mypy
       - run: pytest
       - name: Verify Alembic persistence migrations
@@ -97,6 +97,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
