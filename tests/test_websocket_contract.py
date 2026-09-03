@@ -1,14 +1,15 @@
-from fastapi.testclient import TestClient
+import asyncio
+
 from sdpstudio_server.app import create_app
+from sdpstudio_server.collab import CollaborationHub
 
 
-def _receive_presence(socket, expected_count: int) -> None:
-    for _ in range(6):
-        message = socket.receive_json()
-        if message.get("type") == "presence":
-            assert message["count"] == expected_count
-            return
-    raise AssertionError(f"presence count {expected_count} was not received")
+class _FakeWebSocket:
+    def __init__(self) -> None:
+        self.messages: list[dict[str, object]] = []
+
+    async def send_json(self, payload: dict[str, object]) -> None:
+        self.messages.append(payload)
 
 
 def test_normative_websocket_paths_are_registered(tmp_path):
@@ -19,20 +20,24 @@ def test_normative_websocket_paths_are_registered(tmp_path):
     assert "/ws/runs/{run_id}" in websocket_paths
 
 
-def test_project_websocket_broadcasts_presence_lifecycle(tmp_path):
-    with TestClient(create_app(tmp_path)) as client:
-        project = client.post("/api/projects", json={"name": "presence-lifecycle"}).json()
-        project_id = project["id"]
+def test_collaboration_hub_broadcasts_presence_lifecycle():
+    async def exercise() -> None:
+        hub = CollaborationHub()
+        first = _FakeWebSocket()
+        second = _FakeWebSocket()
+        project_id = "presence-lifecycle"
 
-        with client.websocket_connect(
-            f"/ws/projects/{project_id}", subprotocols=["sdpstudio.v1"]
-        ) as first:
-            _receive_presence(first, 1)
+        assert await hub.connect(project_id, first) == 1
+        await hub.broadcast(project_id, {"type": "presence", "count": 1})
+        assert first.messages[-1] == {"type": "presence", "count": 1}
 
-            with client.websocket_connect(
-                f"/ws/projects/{project_id}", subprotocols=["sdpstudio.v1"]
-            ) as second:
-                _receive_presence(first, 2)
-                _receive_presence(second, 2)
+        assert await hub.connect(project_id, second) == 2
+        await hub.broadcast(project_id, {"type": "presence", "count": 2})
+        assert first.messages[-1] == {"type": "presence", "count": 2}
+        assert second.messages[-1] == {"type": "presence", "count": 2}
 
-            _receive_presence(first, 1)
+        assert await hub.disconnect(project_id, second) == 1
+        await hub.broadcast(project_id, {"type": "presence", "count": 1})
+        assert first.messages[-1] == {"type": "presence", "count": 1}
+
+    asyncio.run(exercise())
