@@ -4,6 +4,11 @@ import type { Pipeline } from "./api";
 const key = "pipeline";
 const offlinePrefix = "sdpstudio.collab.";
 
+export function collaborationWebSocketUrl(projectId: string, location: Pick<Location, "protocol" | "host"> = window.location): string {
+  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${location.host}/ws/collab/${encodeURIComponent(projectId)}`;
+}
+
 export function createPipelineDoc(initial?: Pipeline): Y.Doc {
   const doc = new Y.Doc();
   if (initial) setPipelineDoc(doc, initial);
