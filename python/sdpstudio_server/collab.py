@@ -32,11 +32,17 @@ class CollaborationHub:
         self._presence: dict[str, dict[WebSocket, dict[str, Any]]] = defaultdict(dict)
         self._lock = asyncio.Lock()
 
+    @staticmethod
+    def _remote_collaborators(connection_count: int) -> int:
+        """Translate total sockets into peers visible to the current client."""
+
+        return max(0, connection_count - 1)
+
     async def connect(self, project_id: str, ws: WebSocket) -> int:
         async with self._lock:
             self._connections[project_id].add(ws)
             self._presence[project_id][ws] = {"selected_node_id": None, "cursor": None}
-            return len(self._connections[project_id])
+            return self._remote_collaborators(len(self._connections[project_id]))
 
     async def disconnect(self, project_id: str, ws: WebSocket) -> int:
         async with self._lock:
@@ -48,7 +54,7 @@ class CollaborationHub:
                     self._presence.pop(project_id, None)
                     return 0
                 self._presence.get(project_id, {}).pop(ws, None)
-                return len(group)
+                return self._remote_collaborators(len(group))
             return 0
 
     async def update_presence(
@@ -65,7 +71,7 @@ class CollaborationHub:
             )
             cursor = payload.get("cursor")
             current["cursor"] = cursor if isinstance(cursor, dict) else None
-            return [dict(item) for item in self._presence.get(project_id, {}).values()]
+            return [dict(item) for self_ws, item in self._presence.get(project_id, {}).items() if self_ws is not ws]
 
     async def broadcast(self, project_id: str, payload: dict[str, Any]) -> None:
         async with self._lock:
@@ -84,5 +90,7 @@ class CollaborationHub:
                         group.discard(ws)
 
     async def presence(self, project_id: str) -> int:
+        """Return total live sockets for server-side health/diagnostic callers."""
+
         async with self._lock:
             return len(self._connections.get(project_id, ()))
