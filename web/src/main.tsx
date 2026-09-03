@@ -299,8 +299,9 @@ export function App() {
     if (!projectId) {
       return;
     }
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const socketUrl = `${protocol}//${window.location.host}/ws/projects/${projectId}`;
+    const protocol = import.meta.env.DEV ? "ws:" : window.location.protocol === "https:" ? "wss:" : "ws:";
+    const socketHost = import.meta.env.DEV ? `${window.location.hostname}:8788` : window.location.host;
+    const socketUrl = `${protocol}//${socketHost}/ws/projects/${projectId}`;
     const doc = createPipelineDoc();
     restoreOfflineState(projectId, doc);
     collabDoc.current = doc;
