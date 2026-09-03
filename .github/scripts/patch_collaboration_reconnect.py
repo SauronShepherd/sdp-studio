@@ -1,0 +1,107 @@
+from pathlib import Path
+
+path = Path("web/src/main.tsx")
+text = path.read_text(encoding="utf-8")
+start_marker = "  useEffect(() => {\n    if (!projectId) {\n      return;\n    }\n    const protocol = window.location.protocol === \"https:\" ? \"wss:\" : \"ws:\";"
+end_marker = "\n\n  useEffect(() => {\n    Promise.all([api.operators(), api.projects(), api.doctor(), api.runtimeProfiles()])"
+start = text.index(start_marker)
+end = text.index(end_marker, start)
+replacement = '''  useEffect(() => {
+    if (!projectId) {
+      return;
+    }
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const socketUrl = `${protocol}//${window.location.host}/ws/projects/${projectId}`;
+    const doc = createPipelineDoc();
+    restoreOfflineState(projectId, doc);
+    collabDoc.current = doc;
+    activeCollabDoc = doc;
+    let disposed = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectDelay = 250;
+    let socket: WebSocket | null = null;
+    const sourceObservers = (["python", "sql"] as const).map((language) => {
+      const text = sourceText(doc, language);
+      const observer = () => {
+        if (generatedLanguageRef.current === language && text.toString() !== generatedRef.current) setGenerated(text.toString());
+      };
+      text.observe(observer);
+      return () => text.unobserve(observer);
+    });
+    const onUpdate = (update: Uint8Array, origin: unknown) => {
+      persistOfflineState(projectId, doc);
+      const currentSocket = collabSocket.current;
+      if (origin === "remote" || !currentSocket || currentSocket.readyState !== WebSocket.OPEN) return;
+      currentSocket.send(JSON.stringify({ type: "y_update", update: encodeUpdate(update) }));
+    };
+    const onMessage = (event: MessageEvent<string>) => {
+      try {
+        const message = JSON.parse(event.data) as { type?: string; count?: number; event?: { update?: string }; snapshot?: { document?: Pipeline | { format?: string; updates?: Array<{ update?: string }> } } };
+        if (message.type === "presence" && typeof message.count === "number") setPresence(Math.max(0, message.count - 1));
+        if (message.type === "presence_state" && Array.isArray((message as { states?: unknown[] }).states)) {
+          const states = ((message as { states: PresenceState[] }).states).filter((state) => state && typeof state === "object");
+          setPresenceStates(states);
+          setPresence(Math.max(0, states.length - 1));
+        }
+        if (message.type === "y_update" && message.event?.update) {
+          applyingRemoteUpdate.current = true;
+          Y.applyUpdate(doc, decodeUpdate(message.event.update), "remote");
+          const remote = readPipelineDoc(doc);
+          if (remote && !localPipelineDirty.current && Date.now() >= remotePipelineBlockedUntil.current) setPipeline(remote);
+          persistOfflineState(projectId, doc);
+          applyingRemoteUpdate.current = false;
+        }
+        if (message.type === "snapshot" && message.snapshot?.document) {
+          const document = message.snapshot.document;
+          if ("format" in document && document.format === "yjs-update-bundle") {
+            for (const item of document.updates || []) {
+              if (item.update) Y.applyUpdate(doc, decodeUpdate(item.update), "remote");
+            }
+            const recovered = readPipelineDoc(doc);
+            if (recovered && !canonicalPipelineLoaded.current && !localPipelineDirty.current && Date.now() >= remotePipelineBlockedUntil.current) setPipeline(recovered);
+            persistOfflineState(projectId, doc);
+          } else if ("nodes" in document && "edges" in document) {
+            setPipelineDoc(doc, document);
+            if (!canonicalPipelineLoaded.current && !localPipelineDirty.current && Date.now() >= remotePipelineBlockedUntil.current) setPipeline(document);
+            persistOfflineState(projectId, doc);
+          }
+        }
+      } catch {
+        // Ignore malformed non-control messages; REST remains the source of truth.
+      }
+    };
+    const connectSocket = () => {
+      if (disposed) return;
+      const nextSocket = new WebSocket(socketUrl, ["sdpstudio.v1"]);
+      socket = nextSocket;
+      collabSocket.current = nextSocket;
+      nextSocket.onopen = () => {
+        reconnectDelay = 250;
+        nextSocket.send(JSON.stringify({ type: "y_update", update: encodeUpdate(Y.encodeStateAsUpdate(doc)) }));
+      };
+      nextSocket.onmessage = onMessage;
+      nextSocket.onerror = () => setPresence(0);
+      nextSocket.onclose = (event) => {
+        if (collabSocket.current === nextSocket) collabSocket.current = null;
+        setPresence(0);
+        if (disposed || event.code === 4401 || event.code === 4404) return;
+        const delay = reconnectDelay;
+        reconnectDelay = Math.min(reconnectDelay * 2, 4000);
+        reconnectTimer = setTimeout(connectSocket, delay);
+      };
+    };
+    doc.on("update", onUpdate);
+    connectSocket();
+    return () => {
+      disposed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      sourceObservers.forEach((dispose) => dispose());
+      doc.off("update", onUpdate);
+      doc.destroy();
+      collabDoc.current = null;
+      activeCollabDoc = null;
+      if (collabSocket.current === socket) collabSocket.current = null;
+      if (socket && socket.readyState < WebSocket.CLOSING) socket.close();
+    };
+  }, [projectId]);'''
+path.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
