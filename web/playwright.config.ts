@@ -9,10 +9,17 @@ export default defineConfig({
   fullyParallel: true,
   workers: 1,
   reporter: [["line"], ["html", { open: "never" }]],
-  use: { baseURL: "http://127.0.0.1:8787", trace: "retain-on-failure" },
+  use: { baseURL: "http://127.0.0.1:8788", trace: "retain-on-failure" },
   webServer: [
-    { command: "python -m uvicorn sdpstudio_server.app:create_app --factory --port 8788", url: "http://127.0.0.1:8788/health", reuseExistingServer: false, env: { PYTHONPATH: path.resolve(process.cwd(), "../python"), SDPSTUDIO_DATA_ROOT: e2eDataRoot } },
-    { command: "pnpm dev --host 127.0.0.1 --port 8787", url: "http://127.0.0.1:8787/react-index.html", reuseExistingServer: false },
+    {
+      command: "pnpm build && python -m uvicorn sdpstudio_server.app:create_app --factory --port 8788",
+      url: "http://127.0.0.1:8788/health",
+      reuseExistingServer: false,
+      env: {
+        PYTHONPATH: path.resolve(process.cwd(), "../python"),
+        SDPSTUDIO_DATA_ROOT: e2eDataRoot,
+      },
+    },
   ],
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 });

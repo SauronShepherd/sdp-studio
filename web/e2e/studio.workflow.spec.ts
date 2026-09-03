@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("covers generated SQL, preview/profile, row trace, run and Git controls", async ({ page }) => {
-  await page.goto("/react-index.html");
+  await page.goto("/");
   await page.getByRole("button", { name: "New project" }).click();
   await expect(page.getByRole("status")).toContainText("Created pipeline-");
   await page.getByRole("button", { name: "SQL", exact: true }).click();
