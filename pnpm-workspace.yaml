@@ -1,7 +1,5 @@
 packages:
   - web
-overrides:
-  dompurify: 3.4.14
 onlyBuiltDependencies:
   - esbuild
 allowBuilds:
