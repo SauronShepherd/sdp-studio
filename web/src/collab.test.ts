@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { createPipelineDoc, decodeUpdate, encodeUpdate, persistOfflineState, projectFileText, readPipelineDoc, restoreOfflineState, setPipelineDoc, setProjectFileText, setSourceText, sourceText } from "./collab";
+import { collaborationWebSocketUrl, createPipelineDoc, decodeUpdate, encodeUpdate, persistOfflineState, projectFileText, readPipelineDoc, restoreOfflineState, setPipelineDoc, setProjectFileText, setSourceText, sourceText } from "./collab";
 
 describe("Yjs pipeline collaboration", () => {
   it("round-trips a pipeline through a binary update", () => {
@@ -56,6 +56,11 @@ describe("Yjs pipeline collaboration", () => {
     expect(projectFileText(doc, "src/helper.py").toString()).toBe("print(1)");
     expect(() => projectFileText(doc, "../secret.txt")).toThrow(/normalized/);
   });
+});
+
+it("builds the normative collaboration websocket URL", () => {
+  expect(collaborationWebSocketUrl("project a", { protocol: "http:", host: "localhost:8787" })).toBe("ws://localhost:8787/ws/collab/project%20a");
+  expect(collaborationWebSocketUrl("secure", { protocol: "https:", host: "studio.example" })).toBe("wss://studio.example/ws/collab/secure");
 });
 
 it("persists and restores offline Yjs state per project", () => {
