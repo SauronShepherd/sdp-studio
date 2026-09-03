@@ -11,6 +11,7 @@ export default defineConfig(({ command }) => ({
     emptyOutDir: true,
     rollupOptions: { input: fileURLToPath(new URL("./react-index.html", import.meta.url)) },
   },
+  // REST uses the Vite proxy in development; collaboration WebSockets connect directly to the backend.
   server: { proxy: { "/api": "http://127.0.0.1:8788" } },
   test: { environment: "jsdom", setupFiles: ["./src/test-setup.ts"] },
 }));
