@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 test.describe("studio visual regression", () => {
   test("desktop shell and inspector remain visually stable", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto("/react-index.html");
+    await page.goto("/");
     await expect(page.getByRole("heading", { name: "SDP Studio" })).toBeVisible();
     await expect(page.getByRole("combobox", { name: "Runtime profile" })).toBeVisible();
     await expect(page.getByLabel("Editor status")).toBeVisible();
@@ -27,7 +27,7 @@ test.describe("studio visual regression", () => {
 
   test("mobile shell keeps primary controls reachable", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto("/react-index.html");
+    await page.goto("/");
     await expect(page.getByRole("heading", { name: "SDP Studio" })).toBeVisible();
     await expect(page.getByRole("button", { name: "New project" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Validate" })).toBeVisible();
