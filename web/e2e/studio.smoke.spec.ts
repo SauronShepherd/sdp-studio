@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("loads the visual IDE and completes the core project workflow", async ({ page }) => {
-  await page.goto("/react-index.html");
+  await page.goto("/");
   await expect(page.getByRole("heading", { name: "SDP Studio" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Operators" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Git", exact: true })).toBeVisible();
@@ -23,7 +23,7 @@ test("loads the visual IDE and completes the core project workflow", async ({ pa
 });
 
 test("shows collaboration presence across two browser clients", async ({ browser, page }) => {
-  await page.goto("/react-index.html");
+  await page.goto("/");
   await page.getByRole("button", { name: "New project" }).click();
   await expect(page.getByRole("status")).toContainText("Created pipeline-");
   const projectId = await page.getByLabel("Project", { exact: true }).inputValue();
@@ -32,7 +32,7 @@ test("shows collaboration presence across two browser clients", async ({ browser
   const secondContext = await browser.newContext();
   const secondPage = await secondContext.newPage();
   try {
-    await secondPage.goto("/react-index.html");
+    await secondPage.goto("/");
     await expect(secondPage.getByRole("heading", { name: "SDP Studio" })).toBeVisible();
     await secondPage.getByLabel("Project", { exact: true }).selectOption(projectId);
     await expect(page.getByLabel("Collaborators")).toHaveText(/[1-9]\d* collaborator/, { timeout: 20000 });
@@ -44,7 +44,7 @@ test("shows collaboration presence across two browser clients", async ({ browser
 });
 
 test("preserves configured node data after moving, saving, and reloading", async ({ page }) => {
-  await page.goto("/react-index.html");
+  await page.goto("/");
   const projectSelect = page.getByLabel("Project", { exact: true });
   const projectId = await page.evaluate(async () => {
     const csrf = document.cookie.split(";").map((item) => item.trim()).find((item) => item.startsWith("sdpstudio_csrf="))?.split("=")[1];
@@ -100,7 +100,7 @@ test("preserves configured node data after moving, saving, and reloading", async
 });
 
 test("exposes activity navigation, theme persistence, and live editor status", async ({ page }) => {
-  await page.goto("/react-index.html");
+  await page.goto("/");
   await expect(page.getByRole("navigation", { name: "Workspace sections" })).toBeVisible();
   await expect(page.getByLabel("Editor status")).toContainText("Runtime: Local Spark");
   const theme = page.getByRole("button", { name: "Switch to light theme" });
