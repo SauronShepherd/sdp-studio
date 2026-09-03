@@ -1,4 +1,9 @@
 {
   "name": "sdpstudio-workspace",
-  "private": true
+  "private": true,
+  "pnpm": {
+    "overrides": {
+      "dompurify": "3.4.14"
+    }
+  }
 }
