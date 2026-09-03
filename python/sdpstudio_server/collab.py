@@ -71,7 +71,11 @@ class CollaborationHub:
             )
             cursor = payload.get("cursor")
             current["cursor"] = cursor if isinstance(cursor, dict) else None
-            return [dict(item) for self_ws, item in self._presence.get(project_id, {}).items() if self_ws is not ws]
+            return [
+                dict(item)
+                for self_ws, item in self._presence.get(project_id, {}).items()
+                if self_ws is not ws
+            ]
 
     async def broadcast(self, project_id: str, payload: dict[str, Any]) -> None:
         async with self._lock:
