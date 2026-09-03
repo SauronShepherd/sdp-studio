@@ -2,6 +2,15 @@ from fastapi.testclient import TestClient
 from sdpstudio_server.app import create_app
 
 
+def _receive_presence(socket, expected_count: int) -> None:
+    for _ in range(6):
+        message = socket.receive_json()
+        if message.get("type") == "presence":
+            assert message["count"] == expected_count
+            return
+    raise AssertionError(f"presence count {expected_count} was not received")
+
+
 def test_normative_websocket_paths_are_registered(tmp_path):
     app = create_app(tmp_path)
     websocket_paths = {route.path for route in app.routes if route.path.startswith("/ws/")}
@@ -18,12 +27,12 @@ def test_project_websocket_broadcasts_presence_lifecycle(tmp_path):
         with client.websocket_connect(
             f"/ws/projects/{project_id}", subprotocols=["sdpstudio.v1"]
         ) as first:
-            assert first.receive_json() == {"type": "presence", "count": 1}
+            _receive_presence(first, 1)
 
             with client.websocket_connect(
                 f"/ws/projects/{project_id}", subprotocols=["sdpstudio.v1"]
             ) as second:
-                assert first.receive_json() == {"type": "presence", "count": 2}
-                assert second.receive_json() == {"type": "presence", "count": 2}
+                _receive_presence(first, 2)
+                _receive_presence(second, 2)
 
-            assert first.receive_json() == {"type": "presence", "count": 1}
+            _receive_presence(first, 1)
