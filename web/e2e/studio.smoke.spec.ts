@@ -34,7 +34,7 @@ test("shows collaboration presence across two browser clients", async ({ browser
             resolve();
           }
         } catch {
-          // Ignore non-JSON collaboration frames; the server control protocol is JSON.
+          // Ignore non-JSON frames; collaboration control frames are JSON.
         }
       });
       socket.on("socketerror", (error) => {
@@ -57,40 +57,9 @@ test("shows collaboration presence across two browser clients", async ({ browser
   try {
     await secondPage.goto("/react-index.html");
     await expect(secondPage.getByRole("heading", { name: "SDP Studio" })).toBeVisible();
-    const firstSeesSecond = new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("First client did not receive presence count 2")), 20000);
-      page.on("websocket", () => undefined);
-      const existingSocketPromise = page.evaluate(() => true);
-      void existingSocketPromise;
-      const listener = (event: { payload: string | Buffer }) => {
-        try {
-          const message = JSON.parse(String(event.payload)) as { type?: string; count?: number };
-          if (message.type === "presence" && message.count === 2) {
-            clearTimeout(timer);
-            resolve();
-          }
-        } catch {
-          // Ignore non-control frames.
-        }
-      };
-      page.once("close", () => {
-        clearTimeout(timer);
-        reject(new Error("First collaboration page closed before presence count 2"));
-      });
-      // The first socket already exists, so observe the product-level DOM below as the durable assertion.
-      // This promise intentionally resolves only through that assertion fallback.
-      void listener;
-      setTimeout(() => {
-        if (page.getByLabel("Collaborators")) {
-          clearTimeout(timer);
-          resolve();
-        }
-      }, 1);
-    });
     const secondPresence = waitForPresenceFrame(secondPage, 2);
     await secondPage.getByLabel("Project", { exact: true }).selectOption(projectId);
     await secondPresence;
-    await firstSeesSecond;
     await expect(page.getByLabel("Collaborators")).toHaveText(/[1-9]\d* collaborator/, { timeout: 20000 });
     await expect(secondPage.getByLabel("Collaborators")).toHaveText(/[1-9]\d* collaborator/, { timeout: 20000 });
   } finally {
@@ -144,11 +113,25 @@ test("preserves configured node data after moving, saving, and reloading", async
     const document = await response.json();
     return document.nodes.some((node: { config?: { marker?: string } }) => node.config?.marker === "regression");
   }, projectId)).toBe(true);
-
   await page.reload();
-  await expect(page.getByLabel("Project", { exact: true })).toBeVisible();
-  await page.waitForTimeout(1000);
-  await expect.poll(async () => projectSelect.locator(`option[value="${projectId}"]`).count()).toBe(1);
-  await projectSelect.selectOption(projectId);
-  await expect(page.getByLabel("Node configuration JSON")).toHaveValue(/regression/, { timeout: 20000 });
+  await page.getByLabel("Project", { exact: true }).selectOption(projectId);
+  await expect.poll(async () => page.evaluate(async (id) => {
+    const response = await fetch(`/api/projects/${id}/pipeline`);
+    const document = await response.json();
+    return document.nodes.some((node: { config?: { marker?: string } }) => node.config?.marker === "regression");
+  }, projectId)).toBe(true);
+  await page.waitForTimeout(2000);
+  await expect(page.getByLabel("Node configuration JSON")).toHaveValue(/regression/);
+});
+
+test("exposes activity navigation, theme persistence, and live editor status", async ({ page }) => {
+  await page.goto("/react-index.html");
+  await expect(page.getByRole("navigation", { name: "Workspace sections" })).toBeVisible();
+  await expect(page.getByLabel("Editor status")).toContainText("Runtime: Local Spark");
+  const theme = page.getByRole("button", { name: "Switch to light theme" });
+  await theme.click();
+  await expect(page.getByRole("button", { name: "Switch to dark theme" })).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
 });
