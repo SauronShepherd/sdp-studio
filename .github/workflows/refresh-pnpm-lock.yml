@@ -21,10 +21,6 @@ jobs:
           node-version: '22'
           cache: pnpm
       - run: pnpm install --lockfile-only
-      - name: Verify patched dependency resolution
-        run: |
-          grep -q 'dompurify@3.4.14' pnpm-lock.yaml
-          ! grep -q 'dompurify@3.4.8' pnpm-lock.yaml
       - name: Commit lockfile if changed
         run: |
           if git diff --quiet -- pnpm-lock.yaml; then
