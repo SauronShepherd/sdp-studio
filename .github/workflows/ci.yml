@@ -53,6 +53,16 @@ jobs:
       - run: pip install -e .
       - run: pnpm --filter @sdpstudio/web exec playwright install --with-deps chromium
       - run: pnpm --filter @sdpstudio/web test:e2e
+      - name: Upload Playwright failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-failure-evidence
+          path: |
+            web/test-results
+            web/playwright-report
+          if-no-files-found: warn
+          retention-days: 7
   package:
     runs-on: ubuntu-latest
     needs: [python, web]
