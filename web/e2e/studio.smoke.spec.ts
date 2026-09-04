@@ -23,23 +23,49 @@ test("loads the visual IDE and completes the core project workflow", async ({ pa
 });
 
 test("shows collaboration presence across two browser clients", async ({ browser, page }) => {
+  const waitForPresenceFrame = (targetPage: typeof page, expectedCount: number) => new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Timed out waiting for collaboration presence count ${expectedCount}`)), 20000);
+    targetPage.once("websocket", (socket) => {
+      socket.on("framereceived", ({ payload }) => {
+        try {
+          const message = JSON.parse(String(payload)) as { type?: string; count?: number };
+          if (message.type === "presence" && message.count === expectedCount) {
+            clearTimeout(timer);
+            resolve();
+          }
+        } catch {
+          // Ignore non-JSON frames; collaboration control frames are JSON.
+        }
+      });
+      socket.on("socketerror", (error) => {
+        clearTimeout(timer);
+        reject(new Error(`Collaboration WebSocket error: ${error}`));
+      });
+    });
+  });
+
   await page.goto("/react-index.html");
+  const firstPresence = waitForPresenceFrame(page, 1);
   await page.getByRole("button", { name: "New project" }).click();
   await expect(page.getByRole("status")).toContainText("Created pipeline-");
+  await firstPresence;
   const projectId = await page.getByLabel("Project", { exact: true }).inputValue();
-  await expect(page.getByLabel("Collaborators")).toHaveText(/[1-9]\d* collaborator/, { timeout: 20000 });
+  await expect(page.getByLabel("Collaborators")).toHaveText("0 collaborators");
 
   const secondContext = await browser.newContext();
   const secondPage = await secondContext.newPage();
   try {
     await secondPage.goto("/react-index.html");
     await expect(secondPage.getByRole("heading", { name: "SDP Studio" })).toBeVisible();
+    const secondPresence = waitForPresenceFrame(secondPage, 2);
     await secondPage.getByLabel("Project", { exact: true }).selectOption(projectId);
+    await secondPresence;
     await expect(page.getByLabel("Collaborators")).toHaveText(/[1-9]\d* collaborator/, { timeout: 20000 });
     await expect(secondPage.getByLabel("Collaborators")).toHaveText(/[1-9]\d* collaborator/, { timeout: 20000 });
   } finally {
     await secondContext.close();
   }
+  await expect(page.getByLabel("Collaborators")).toHaveText("0 collaborators", { timeout: 20000 });
 });
 
 test("preserves configured node data after moving, saving, and reloading", async ({ page }) => {
@@ -101,7 +127,7 @@ test("preserves configured node data after moving, saving, and reloading", async
 test("exposes activity navigation, theme persistence, and live editor status", async ({ page }) => {
   await page.goto("/react-index.html");
   await expect(page.getByRole("navigation", { name: "Workspace sections" })).toBeVisible();
-  await expect(page.getByLabel("Editor status")).toContainText("Default runtime");
+  await expect(page.getByLabel("Editor status")).toContainText("Runtime: Local Spark");
   const theme = page.getByRole("button", { name: "Switch to light theme" });
   await theme.click();
   await expect(page.getByRole("button", { name: "Switch to dark theme" })).toBeVisible();

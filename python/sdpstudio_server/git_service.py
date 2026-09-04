@@ -21,9 +21,6 @@ def _bounded_text(value: str) -> str:
 def _git(path: Path, args: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
     disabled_hooks = path / ".sdpstudio" / "disabled-hooks"
     disabled_hooks.parent.mkdir(parents=True, exist_ok=True)
-    # Do not leak application credentials or unrelated process configuration
-    # into repository operations. Preserve only variables Git uses for binary
-    # discovery, locale, and explicitly configured non-secret SSH behavior.
     environment = {
         key: value
         for key, value in os.environ.items()
@@ -43,7 +40,18 @@ def _git(path: Path, args: list[str], check: bool = True) -> subprocess.Complete
     }
     environment["GIT_TERMINAL_PROMPT"] = "0"
     return subprocess.run(
-        ["git", "-C", str(path), "-c", f"core.hooksPath={disabled_hooks}", *args],
+        [
+            "git",
+            "-C",
+            str(path),
+            "-c",
+            f"core.hooksPath={disabled_hooks}",
+            "-c",
+            "user.name=SDP Studio User",
+            "-c",
+            "user.email=sdpstudio@localhost",
+            *args,
+        ],
         check=check,
         capture_output=True,
         text=True,
@@ -95,8 +103,12 @@ def run_context(path: Path) -> dict[str, Any]:
 
 def init(path: Path) -> dict[str, Any]:
     if not (path / ".git").exists():
-        _git(path, ["init"])
-        _git(path, ["branch", "-M", "main"], check=False)
+        result = _git(path, ["init", "-b", "main"], check=False)
+        if result.returncode != 0:
+            _git(path, ["init"])
+            symbolic = _git(path, ["symbolic-ref", "HEAD", "refs/heads/main"], check=False)
+            if symbolic.returncode != 0:
+                raise RuntimeError(symbolic.stderr.strip() or "Unable to initialize main branch")
     _git(path, ["config", "--local", "core.hooksPath", str(path / ".sdpstudio" / "disabled-hooks")])
     return status(path)
 
@@ -128,7 +140,6 @@ def _validate_ref(ref: str) -> str:
 
 
 def read_blob(path: Path, ref: str, relative_path: str) -> str:
-    """Read a committed file without checking out or mutating the worktree."""
     result = _git(
         path, ["show", f"{_validate_ref(ref)}:{_validate_blob_path(relative_path)}"], check=False
     )
@@ -138,7 +149,6 @@ def read_blob(path: Path, ref: str, relative_path: str) -> str:
 
 
 def blob_diff(path: Path, left: str, right: str, relative_path: str) -> str:
-    """Return a committed blob diff without checkout."""
     result = _git(
         path,
         [
@@ -161,24 +171,10 @@ def commit(path: Path, message: str) -> dict[str, Any]:
     init(path)
     if not message.strip():
         raise ValueError("Commit message must not be empty")
-    # Respect explicit staging. This keeps the commit operation from silently
-    # adding unrelated files in a shared project workspace.
     staged = _git(path, ["diff", "--cached", "--quiet"], check=False)
     if staged.returncode == 0:
         raise ValueError("No staged changes to commit")
-    result = _git(
-        path,
-        [
-            "-c",
-            "user.name=SDP Studio User",
-            "-c",
-            "user.email=sdpstudio@localhost",
-            "commit",
-            "-m",
-            message,
-        ],
-        check=False,
-    )
+    result = _git(path, ["commit", "-m", message], check=False)
     if result.returncode not in (0, 1):
         raise RuntimeError(result.stderr.strip() or result.stdout.strip())
     return {"output": (result.stdout + result.stderr).strip(), **status(path)}
@@ -278,7 +274,6 @@ def conflicts(path: Path) -> list[str]:
 
 
 def conflict_versions(path: Path, file_path: str, max_bytes: int = 512 * 1024) -> dict[str, str]:
-    """Read bounded ours/theirs conflict stages without modifying the worktree."""
     if max_bytes < 1 or max_bytes > MAX_GIT_TEXT_BYTES:
         raise ValueError(f"Conflict version limit must be between 1 and {MAX_GIT_TEXT_BYTES}")
     candidate = Path(file_path)
@@ -297,7 +292,6 @@ def conflict_versions(path: Path, file_path: str, max_bytes: int = 512 * 1024) -
 
 
 def resolve_conflict(path: Path, file_path: str, strategy: str) -> dict[str, Any]:
-    """Resolve one currently-conflicted path and stage the selected version."""
     if strategy not in {"ours", "theirs"}:
         raise ValueError("Conflict strategy must be ours or theirs")
     candidate = Path(file_path)
@@ -349,7 +343,6 @@ def remotes(path: Path) -> dict[str, str]:
 
 
 def _validate_remote_url(url: str) -> None:
-    import re
     from urllib.parse import urlparse
 
     value = url.strip()
@@ -368,7 +361,6 @@ def _validate_remote_url(url: str) -> None:
                 "Do not embed credentials in Git remote URLs; use SSH or a credential helper"
             )
         return
-    # SCP-like SSH syntax: git@github.com:org/repo.git
     if re.fullmatch(r"[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[A-Za-z0-9._~/-]+", value):
         return
     raise ValueError(

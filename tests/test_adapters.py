@@ -1,4 +1,5 @@
 import inspect
+import sys
 from pathlib import Path
 
 import pytest
@@ -116,9 +117,10 @@ def test_kubernetes_lifecycle_commands_are_deterministic_and_safe():
 @pytest.mark.asyncio
 async def test_local_async_adapter_exposes_all_runtime_operations(tmp_path: Path, monkeypatch):
     adapter = LocalRuntimeAdapter()
+    command = [sys.executable, "-c", "pass"]
     monkeypatch.setattr(
         "sdpstudio_runners.adapters.build_run_command",
-        lambda *args, **kwargs: (["cmd", "/c", "exit", "0"], ["cmd", "/c", "exit", "0"], None),
+        lambda *args, **kwargs: (command, command, None),
     )
     profile = {"adapter": "local", "config": {}}
     validation = await adapter.validate(profile, tmp_path)
@@ -130,6 +132,25 @@ async def test_local_async_adapter_exposes_all_runtime_operations(tmp_path: Path
     assert events == []
     assert (await adapter.status(handle)).state == "succeeded"
     assert await adapter.collect_artifacts(handle) == []
+
+
+@pytest.mark.asyncio
+async def test_local_async_adapter_closes_stream_when_process_spawn_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    adapter = LocalRuntimeAdapter()
+    command = ["definitely-not-an-sdpstudio-runtime-command"]
+    monkeypatch.setattr(
+        "sdpstudio_runners.adapters.build_run_command",
+        lambda *args, **kwargs: (command, command, None),
+    )
+    profile = {"adapter": "local", "config": {}}
+    handle = await adapter.submit(profile, tmp_path, "run-failed", "incremental", [])
+
+    assert [event async for event in adapter.stream_events(handle)] == []
+    status = await adapter.status(handle)
+    assert status.state == "failed"
+    assert status.message
 
 
 @pytest.mark.asyncio

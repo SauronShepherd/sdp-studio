@@ -299,13 +299,18 @@ export function App() {
     if (!projectId) {
       return;
     }
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const socket = new WebSocket(`${protocol}//${window.location.host}/ws/projects/${projectId}`, ["sdpstudio.v1"]);
+    const developmentSocket = window.location.port === "8787";
+    const protocol = developmentSocket ? "ws:" : window.location.protocol === "https:" ? "wss:" : "ws:";
+    const socketHost = developmentSocket ? `${window.location.hostname}:8788` : window.location.host;
+    const socketUrl = `${protocol}//${socketHost}/ws/projects/${projectId}`;
     const doc = createPipelineDoc();
-    const recoveredOffline = restoreOfflineState(projectId, doc);
+    restoreOfflineState(projectId, doc);
     collabDoc.current = doc;
     activeCollabDoc = doc;
-    collabSocket.current = socket;
+    let disposed = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectDelay = 250;
+    let socket: WebSocket | null = null;
     const sourceObservers = (["python", "sql"] as const).map((language) => {
       const text = sourceText(doc, language);
       const observer = () => {
@@ -316,23 +321,18 @@ export function App() {
     });
     const onUpdate = (update: Uint8Array, origin: unknown) => {
       persistOfflineState(projectId, doc);
-      if (origin === "remote" || !socket || socket.readyState !== WebSocket.OPEN) return;
-      socket.send(JSON.stringify({ type: "y_update", update: encodeUpdate(update) }));
+      const currentSocket = collabSocket.current;
+      if (origin === "remote" || !currentSocket || currentSocket.readyState !== WebSocket.OPEN) return;
+      currentSocket.send(JSON.stringify({ type: "y_update", update: encodeUpdate(update) }));
     };
-    doc.on("update", onUpdate);
-    socket.onopen = () => {
-      if (recoveredOffline) {
-        socket.send(JSON.stringify({ type: "y_update", update: encodeUpdate(Y.encodeStateAsUpdate(doc)) }));
-      }
-    };
-    socket.onmessage = (event) => {
+    const onMessage = (event: MessageEvent<string>) => {
       try {
         const message = JSON.parse(event.data) as { type?: string; count?: number; event?: { update?: string }; snapshot?: { document?: Pipeline | { format?: string; updates?: Array<{ update?: string }> } } };
-        if (message.type === "presence" && typeof message.count === "number") setPresence(message.count);
+        if (message.type === "presence" && typeof message.count === "number") setPresence(Math.max(0, message.count - 1));
         if (message.type === "presence_state" && Array.isArray((message as { states?: unknown[] }).states)) {
           const states = ((message as { states: PresenceState[] }).states).filter((state) => state && typeof state === "object");
           setPresenceStates(states);
-          setPresence(states.length);
+          setPresence(Math.max(0, states.length - 1));
         }
         if (message.type === "y_update" && message.event?.update) {
           applyingRemoteUpdate.current = true;
@@ -361,8 +361,39 @@ export function App() {
         // Ignore malformed non-control messages; REST remains the source of truth.
       }
     };
-    socket.onerror = () => setPresence(0);
-    return () => { sourceObservers.forEach((dispose) => dispose()); doc.off("update", onUpdate); doc.destroy(); collabDoc.current = null; activeCollabDoc = null; collabSocket.current = null; socket.close(); };
+    const connectSocket = () => {
+      if (disposed) return;
+      const nextSocket = new WebSocket(socketUrl, ["sdpstudio.v1"]);
+      socket = nextSocket;
+      collabSocket.current = nextSocket;
+      nextSocket.onopen = () => {
+        reconnectDelay = 250;
+        nextSocket.send(JSON.stringify({ type: "y_update", update: encodeUpdate(Y.encodeStateAsUpdate(doc)) }));
+      };
+      nextSocket.onmessage = onMessage;
+      nextSocket.onerror = () => setPresence(0);
+      nextSocket.onclose = (event) => {
+        if (collabSocket.current === nextSocket) collabSocket.current = null;
+        setPresence(0);
+        if (disposed || event.code === 4401 || event.code === 4404) return;
+        const delay = reconnectDelay;
+        reconnectDelay = Math.min(reconnectDelay * 2, 4000);
+        reconnectTimer = setTimeout(connectSocket, delay);
+      };
+    };
+    doc.on("update", onUpdate);
+    connectSocket();
+    return () => {
+      disposed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      sourceObservers.forEach((dispose) => dispose());
+      doc.off("update", onUpdate);
+      doc.destroy();
+      collabDoc.current = null;
+      activeCollabDoc = null;
+      if (collabSocket.current === socket) collabSocket.current = null;
+      if (socket && socket.readyState < WebSocket.CLOSING) socket.close();
+    };
   }, [projectId]);
 
   useEffect(() => {
