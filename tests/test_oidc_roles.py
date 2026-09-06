@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from sdpstudio_server.oidc_identity import OIDCIdentity
 from sdpstudio_server.oidc_roles import OIDCAuthorizationError, OIDCRoleMap
 
