@@ -1,5 +1,4 @@
 import pytest
-
 from sdpstudio_server.oidc import OIDCConfig
 from sdpstudio_server.oidc_identity import identity_from_claims
 
