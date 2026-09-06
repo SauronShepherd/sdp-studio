@@ -8,9 +8,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-import argon2.low_level
-import cryptography.exceptions
-import cryptography.hazmat.primitives.ciphers.aead
+from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 
 _KDF_PREFIX = "argon2id-v2:"
@@ -32,6 +31,8 @@ class EncryptedSecret:
 
 
 def _derive_key(raw: bytes, salt: bytes) -> bytes:
+    import argon2.low_level
+
     return argon2.low_level.hash_secret_raw(
         secret=raw,
         salt=salt,
@@ -141,7 +142,7 @@ class SecretVault:
 
     def encrypt(self, value: str, associated_data: str = "") -> EncryptedSecret:
         nonce = os.urandom(12)
-        encrypted = nonce + cryptography.hazmat.primitives.ciphers.aead.AESGCM(self._key).encrypt(
+        encrypted = nonce + AESGCM(self._key).encrypt(
             nonce, value.encode("utf-8"), associated_data.encode("utf-8")
         )
         return EncryptedSecret(base64.urlsafe_b64encode(encrypted).decode("ascii"), self.key_id)
@@ -163,11 +164,9 @@ class SecretVault:
             raise SecretIntegrityError("Encrypted secret key version is unavailable")
         try:
             payload = base64.urlsafe_b64decode(secret.ciphertext.encode("ascii"))
-            value = cryptography.hazmat.primitives.ciphers.aead.AESGCM(key).decrypt(
-                payload[:12], payload[12:], associated_data.encode("utf-8")
-            )
+            value = AESGCM(key).decrypt(payload[:12], payload[12:], associated_data.encode("utf-8"))
             return value.decode("utf-8")
-        except (cryptography.exceptions.InvalidTag, ValueError, UnicodeDecodeError) as exc:
+        except (InvalidTag, ValueError, UnicodeDecodeError) as exc:
             raise SecretIntegrityError("Encrypted secret failed authentication") from exc
 
     def rotate(self, secret: EncryptedSecret, associated_data: str = "") -> EncryptedSecret:
