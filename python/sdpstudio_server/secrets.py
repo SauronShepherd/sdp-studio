@@ -7,6 +7,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+import argon2.low_level
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -30,8 +31,6 @@ class EncryptedSecret:
 
 
 def _derive_key(raw: bytes, salt: bytes) -> bytes:
-    import argon2.low_level
-
     return argon2.low_level.hash_secret_raw(
         secret=raw,
         salt=salt,
