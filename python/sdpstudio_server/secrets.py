@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import binascii
 import hashlib
 import json
 import os
@@ -55,7 +54,7 @@ def _salt_from_key_id(key_id: str) -> bytes | None:
     encoded = key_id[len(_KDF_PREFIX) :]
     try:
         salt = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
-    except (ValueError, binascii.Error) as exc:
+    except ValueError as exc:
         raise SecretIntegrityError("Encrypted secret key version is invalid") from exc
     if len(salt) != _KDF_SALT_BYTES:
         raise SecretIntegrityError("Encrypted secret key version is invalid")
