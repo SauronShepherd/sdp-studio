@@ -282,11 +282,7 @@ def conflicts(path: Path) -> list[str]:
     result = _git(path, ["ls-files", "-u", "-z"], check=False)
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or "Unable to inspect Git conflict index")
-    paths = {
-        entry.split("\t", 1)[1]
-        for entry in result.stdout.split("\0")
-        if "\t" in entry
-    }
+    paths = {entry.split("\t", 1)[1] for entry in result.stdout.split("\0") if "\t" in entry}
     return sorted(paths)
 
 
