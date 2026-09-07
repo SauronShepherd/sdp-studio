@@ -239,7 +239,13 @@ def tags(path: Path) -> list[str]:
 
 def create_tag(path: Path, name: str, message: str | None = None) -> list[str]:
     _validate_branch_name(name)
-    args = ["tag"]
+    args = [
+        "-c",
+        "user.name=SDP Studio User",
+        "-c",
+        "user.email=sdpstudio@localhost",
+        "tag",
+    ]
     if message:
         args.extend(["-a", name, "-m", message])
     else:
@@ -273,8 +279,15 @@ def stash(path: Path, action: str, message: str | None = None) -> dict[str, Any]
 def conflicts(path: Path) -> list[str]:
     if not (path / ".git").exists():
         return []
-    result = _git(path, ["diff", "--name-only", "--diff-filter=U"], check=False)
-    return [line for line in result.stdout.splitlines() if line]
+    result = _git(path, ["ls-files", "-u", "-z"], check=False)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "Unable to inspect Git conflict index")
+    paths = {
+        entry.split("\t", 1)[1]
+        for entry in result.stdout.split("\0")
+        if "\t" in entry
+    }
+    return sorted(paths)
 
 
 def conflict_versions(path: Path, file_path: str, max_bytes: int = 512 * 1024) -> dict[str, str]:
