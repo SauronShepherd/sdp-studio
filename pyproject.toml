@@ -53,7 +53,7 @@ sdpstudio_server = ["static/*", "static/react/*", "static/react/assets/*", "exam
 [tool.pytest.ini_options]
 pythonpath = [".", "python"]
 testpaths = ["tests"]
-addopts = "-q --timeout=120 --timeout-method=thread --durations=25"
+addopts = "-vv --timeout=120 --timeout-method=thread --durations=25"
 markers = ["databricks_live: optional qualification requiring a configured Databricks workspace"]
 
 [tool.ruff]
