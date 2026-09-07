@@ -98,6 +98,8 @@ def init(path: Path) -> dict[str, Any]:
         _git(path, ["init"])
         _git(path, ["branch", "-M", "main"], check=False)
     _git(path, ["config", "--local", "core.hooksPath", str(path / ".sdpstudio" / "disabled-hooks")])
+    _git(path, ["config", "--local", "user.name", "SDP Studio User"])
+    _git(path, ["config", "--local", "user.email", "sdpstudio@localhost"])
     return status(path)
 
 
