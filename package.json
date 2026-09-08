@@ -1,6 +1,7 @@
 {
   "name": "sdpstudio-workspace",
   "private": true,
+  "packageManager": "pnpm@9.15.9",
   "pnpm": {
     "overrides": {
       "dompurify": "3.4.14"

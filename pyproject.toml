@@ -34,7 +34,7 @@ connect = [
   "zstandard>=0.25",
 ]
 postgres = ["asyncpg>=0.29,<1", "psycopg[binary]>=3.2,<4"]
-dev = ["pytest>=8", "pytest-asyncio>=0.24", "coverage[toml]>=7.6", "httpx>=0.27", "ruff>=0.8", "alembic>=1.14,<2", "mypy>=1.13,<2", "types-PyYAML>=6.0"]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "pytest-timeout>=2.3,<3", "coverage[toml]>=7.6", "httpx>=0.27", "ruff>=0.8", "alembic>=1.14,<2", "mypy>=1.13,<2", "types-PyYAML>=6.0"]
 databricks = ["databricks-sdk>=0.36,<1"]
 observability = ["opentelemetry-api>=1.27,<2", "opentelemetry-sdk>=1.27,<2", "opentelemetry-instrumentation-fastapi>=0.48b0,<1"]
 collaboration = []
@@ -53,7 +53,7 @@ sdpstudio_server = ["static/*", "static/react/*", "static/react/assets/*", "exam
 [tool.pytest.ini_options]
 pythonpath = [".", "python"]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-vv --timeout=120 --timeout-method=thread --durations=25"
 markers = ["databricks_live: optional qualification requiring a configured Databricks workspace"]
 
 [tool.ruff]

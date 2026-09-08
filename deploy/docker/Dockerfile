@@ -4,8 +4,9 @@ WORKDIR /src
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY web web
 RUN corepack enable \
-    && pnpm install --frozen-lockfile --prod=false \
-    && pnpm --filter @sdpstudio/web install --frozen-lockfile --prod=false
+    && corepack prepare pnpm@9.15.9 --activate \
+    && pnpm install --frozen-lockfile \
+    && pnpm --filter @sdpstudio/web install --frozen-lockfile
 RUN pnpm --filter @sdpstudio/web build
 
 FROM python:3.12-slim AS runtime-base
