@@ -64,6 +64,8 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install build setuptools wheel
       - run: python -m build --wheel --sdist --no-isolation
+      - name: Install built wheel for release metadata qualification
+        run: python -m pip install dist/*.whl
       - run: python scripts/release_manifest.py --root . --output dist/release-manifest.json dist/*.whl dist/*.tar.gz
       - run: python scripts/sbom.py --output dist/sbom.cdx.json
       - run: python scripts/openapi_client.py --from-app --output web/src/openapi.generated.ts --check
