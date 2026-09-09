@@ -112,7 +112,7 @@ class AuthService:
             ):
                 return None
             payload = json.loads(base64.urlsafe_b64decode(body.encode()))
-            if int(payload.get("exp", 0)) < int(time.time()):
+            if int(payload.get("exp", 0)) <= int(time.time()):
                 return None
             return {"username": str(payload["sub"]), "role": str(payload["role"])}
         except (ValueError, KeyError, TypeError, json.JSONDecodeError):
