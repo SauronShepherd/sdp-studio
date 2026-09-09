@@ -48,7 +48,7 @@ packages = ["sdpstudio_core", "sdpstudio_codegen", "sdpstudio_runners", "sdpstud
 include-package-data = true
 
 [tool.setuptools.package-data]
-sdpstudio_server = ["static/*", "static/react/*", "static/react/assets/*", "examples/retail-etl/*", "examples/retail-etl/.sdpstudio/pipelines/*", "examples/retail-etl/data/*"]
+sdpstudio_server = ["static/*", "static/react/*", "static/react/assets/*", "examples/retail-etl/*", "examples/retail-etl/.sdpstudio/pipelines/*", "examples/retail-etl/data/*", "migrations/*", "migrations/versions/*"]
 
 [tool.pytest.ini_options]
 pythonpath = [".", "python"]
