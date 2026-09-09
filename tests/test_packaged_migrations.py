@@ -1,10 +1,8 @@
-from __future__ import annotations
-
 import hashlib
-from pathlib import Path
+import pathlib
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[1]
 CANONICAL = ROOT / "migrations"
 PACKAGED = ROOT / "python" / "sdpstudio_server" / "migrations"
 MIGRATION_FILES = (
