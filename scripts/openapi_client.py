@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import re
 import tempfile
@@ -99,11 +100,33 @@ def render_client(document: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _check_output(output_path: Path, rendered: str) -> bool:
+    if not output_path.exists():
+        print(f"Generated OpenAPI client is missing: {output_path}")
+        return False
+    current = output_path.read_text(encoding="utf-8")
+    if current == rendered:
+        return True
+    print(f"Generated OpenAPI client is stale: {output_path}")
+    print(
+        "".join(
+            difflib.unified_diff(
+                current.splitlines(keepends=True),
+                rendered.splitlines(keepends=True),
+                fromfile=str(output_path),
+                tofile="generated-from-app",
+            )
+        ),
+        end="",
+    )
+    return False
+
+
 def generate(input_path: Path, output_path: Path, *, check: bool = False) -> bool:
     document = json.loads(input_path.read_text(encoding="utf-8"))
     rendered = render_client(document)
     if check:
-        return output_path.exists() and output_path.read_text(encoding="utf-8") == rendered
+        return _check_output(output_path, rendered)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(rendered, encoding="utf-8")
     return True
@@ -123,9 +146,7 @@ def main() -> int:
             document = create_app(Path(directory)).openapi()
         rendered = render_client(document)
         if args.check:
-            return int(
-                not (args.output.exists() and args.output.read_text(encoding="utf-8") == rendered)
-            )
+            return int(not _check_output(args.output, rendered))
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(rendered, encoding="utf-8")
         return 0
@@ -133,7 +154,6 @@ def main() -> int:
         parser.error("--input or --from-app is required")
     if generate(args.input, args.output, check=args.check):
         return 0
-    print(f"Generated OpenAPI client is stale: {args.output}")
     return 1
 
 
