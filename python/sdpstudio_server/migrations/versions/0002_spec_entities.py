@@ -114,6 +114,8 @@ def upgrade() -> None:
         sa.Column("project_id", sa.String(26), sa.ForeignKey("projects.id"), nullable=False),
         sa.Column("document_path", sa.Text(), nullable=False),
         sa.Column("revision_no", sa.Integer(), nullable=False),
+        # Runtime SQLite/PostgreSQL bootstrap stores revision content as text;
+        # keep the migration type aligned for round-trip portability.
         sa.Column("content_blob", sa.Text(), nullable=True),
         sa.Column("content_hash", sa.String(64), nullable=False),
         sa.Column("reason", sa.String(120), nullable=False),
@@ -190,6 +192,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Reverse the upgrade in dependency order. Keeping this complete is
+    # important for local rollback tests and for operators rehearsing upgrades.
     for table in (
         "node_snapshots",
         "artifacts",
