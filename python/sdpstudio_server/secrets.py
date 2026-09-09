@@ -4,7 +4,6 @@ import base64
 import hashlib
 import json
 import os
-import secrets
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -71,7 +70,7 @@ class SecretVault:
         if len(raw) < 16:
             raise ValueError("SDPSTUDIO_SECRET_KEY must contain at least 16 bytes")
         self._raw_key = raw
-        self.key_id = f"{_V2_KEY_PREFIX}{secrets.token_hex(8)}"
+        self.key_id = f"{_V2_KEY_PREFIX}{_b64encode(os.urandom(8))}"
         self._previous_raw_keys: dict[str, bytes] = {}
         self._legacy_keys: dict[str, bytes] = {}
 
