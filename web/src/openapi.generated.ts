@@ -170,6 +170,9 @@ export interface Position {
 }
 
 export interface PreviewRequest {
+  cache_ttl_seconds?: number;
+  confirm_sink_test?: boolean;
+  force_refresh?: boolean;
   include_plan?: boolean;
   include_profile?: boolean;
   limit?: number;
@@ -178,6 +181,9 @@ export interface PreviewRequest {
   profile_max_rows?: number;
   profile_top_values?: number;
   runtime_profile_id?: string | unknown;
+  sampling_fraction?: number;
+  seed?: number;
+  timeout_seconds?: number;
 }
 
 export interface Problem {
@@ -251,6 +257,7 @@ export interface RowTraceRequest {
   limit?: number;
   node_id: string;
   rows?: Array<Record<string, unknown>>;
+  rows_by_source?: Record<string, Array<Record<string, unknown>>>;
 }
 
 export interface RunRequest {
@@ -268,13 +275,13 @@ export interface RuntimeCapabilities {
   details?: Record<string, unknown>;
   downgrade_map?: Record<string, string>;
   dry_run?: boolean;
-  extensions?: Record<string, unknown>;
+  extensions?: Record<string, RuntimeExtension>;
   full_refresh?: boolean;
   kubernetes?: boolean;
   materialized_view?: boolean;
   portability?: "portable" | "provider" | "unknown";
   provider?: string | unknown;
-  provider_extensions?: Record<string, unknown>;
+  provider_extensions?: Record<string, RuntimeExtension>;
   python?: boolean;
   sdp?: boolean;
   selective_refresh?: boolean;
@@ -285,6 +292,12 @@ export interface RuntimeCapabilities {
   sql?: boolean;
   streaming_table?: boolean;
   temporary_view?: boolean;
+}
+
+export interface RuntimeExtension {
+  capabilities?: Array<string>;
+  details?: Record<string, unknown>;
+  version?: string | unknown;
 }
 
 export interface RuntimeProfileRequest {
@@ -457,6 +470,9 @@ export const OPENAPI_PATHS = [
   "/api/projects/{project_id}/git/unstage",
   "/api/projects/{project_id}/history",
   "/api/projects/{project_id}/history/checkpoints",
+  "/api/projects/{project_id}/history/{revision_id}",
+  "/api/projects/{project_id}/history/{revision_id}/diff",
+  "/api/projects/{project_id}/history/{revision_id}/restore",
   "/api/projects/{project_id}/history/{snapshot_id}",
   "/api/projects/{project_id}/history/{snapshot_id}/diff",
   "/api/projects/{project_id}/history/{snapshot_id}/restore",
@@ -471,6 +487,7 @@ export const OPENAPI_PATHS = [
   "/api/projects/{project_id}/reconcile/python",
   "/api/projects/{project_id}/reconcile/sql",
   "/api/projects/{project_id}/retention/cleanup",
+  "/api/projects/{project_id}/reviews",
   "/api/projects/{project_id}/runs",
   "/api/projects/{project_id}/runs/{run_id}/node-snapshots",
   "/api/projects/{project_id}/schedules",
@@ -576,6 +593,9 @@ export const OPENAPI_PATHS = [
   "/api/v1/projects/{project_id}/git/unstage",
   "/api/v1/projects/{project_id}/history",
   "/api/v1/projects/{project_id}/history/checkpoints",
+  "/api/v1/projects/{project_id}/history/{revision_id}",
+  "/api/v1/projects/{project_id}/history/{revision_id}/diff",
+  "/api/v1/projects/{project_id}/history/{revision_id}/restore",
   "/api/v1/projects/{project_id}/history/{snapshot_id}",
   "/api/v1/projects/{project_id}/history/{snapshot_id}/diff",
   "/api/v1/projects/{project_id}/history/{snapshot_id}/restore",
@@ -590,6 +610,7 @@ export const OPENAPI_PATHS = [
   "/api/v1/projects/{project_id}/reconcile/python",
   "/api/v1/projects/{project_id}/reconcile/sql",
   "/api/v1/projects/{project_id}/retention/cleanup",
+  "/api/v1/projects/{project_id}/reviews",
   "/api/v1/projects/{project_id}/runs",
   "/api/v1/projects/{project_id}/runs/{run_id}/node-snapshots",
   "/api/v1/projects/{project_id}/schedules",
@@ -713,6 +734,9 @@ export const OPENAPI_OPERATIONS = [
   { path: "/api/projects/{project_id}/git/unstage", method: "post" },
   { path: "/api/projects/{project_id}/history", method: "get" },
   { path: "/api/projects/{project_id}/history/checkpoints", method: "post" },
+  { path: "/api/projects/{project_id}/history/{revision_id}", method: "get" },
+  { path: "/api/projects/{project_id}/history/{revision_id}/diff", method: "get" },
+  { path: "/api/projects/{project_id}/history/{revision_id}/restore", method: "post" },
   { path: "/api/projects/{project_id}/history/{snapshot_id}", method: "get" },
   { path: "/api/projects/{project_id}/history/{snapshot_id}/diff", method: "get" },
   { path: "/api/projects/{project_id}/history/{snapshot_id}/restore", method: "post" },
@@ -729,6 +753,7 @@ export const OPENAPI_OPERATIONS = [
   { path: "/api/projects/{project_id}/reconcile/python", method: "post" },
   { path: "/api/projects/{project_id}/reconcile/sql", method: "post" },
   { path: "/api/projects/{project_id}/retention/cleanup", method: "post" },
+  { path: "/api/projects/{project_id}/reviews", method: "get" },
   { path: "/api/projects/{project_id}/runs", method: "get" },
   { path: "/api/projects/{project_id}/runs", method: "post" },
   { path: "/api/projects/{project_id}/runs/{run_id}/node-snapshots", method: "post" },
@@ -855,6 +880,9 @@ export const OPENAPI_OPERATIONS = [
   { path: "/api/v1/projects/{project_id}/git/unstage", method: "post" },
   { path: "/api/v1/projects/{project_id}/history", method: "get" },
   { path: "/api/v1/projects/{project_id}/history/checkpoints", method: "post" },
+  { path: "/api/v1/projects/{project_id}/history/{revision_id}", method: "get" },
+  { path: "/api/v1/projects/{project_id}/history/{revision_id}/diff", method: "get" },
+  { path: "/api/v1/projects/{project_id}/history/{revision_id}/restore", method: "post" },
   { path: "/api/v1/projects/{project_id}/history/{snapshot_id}", method: "get" },
   { path: "/api/v1/projects/{project_id}/history/{snapshot_id}/diff", method: "get" },
   { path: "/api/v1/projects/{project_id}/history/{snapshot_id}/restore", method: "post" },
@@ -871,6 +899,7 @@ export const OPENAPI_OPERATIONS = [
   { path: "/api/v1/projects/{project_id}/reconcile/python", method: "post" },
   { path: "/api/v1/projects/{project_id}/reconcile/sql", method: "post" },
   { path: "/api/v1/projects/{project_id}/retention/cleanup", method: "post" },
+  { path: "/api/v1/projects/{project_id}/reviews", method: "get" },
   { path: "/api/v1/projects/{project_id}/runs", method: "get" },
   { path: "/api/v1/projects/{project_id}/runs", method: "post" },
   { path: "/api/v1/projects/{project_id}/runs/{run_id}/node-snapshots", method: "post" },
