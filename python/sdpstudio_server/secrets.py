@@ -7,8 +7,17 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from argon2.low_level import Type, hash_secret_raw
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+
+_KDF_PREFIX = "argon2id-v2:"
+_KDF_SALT_BYTES = 16
+_KDF_TIME_COST = 2
+_KDF_MEMORY_COST = 19 * 1024
+_KDF_PARALLELISM = 1
+_KDF_HASH_LEN = 32
 
 
 class SecretIntegrityError(ValueError):
@@ -21,25 +30,72 @@ class EncryptedSecret:
     key_id: str
 
 
+def _derive_key(raw: bytes, salt: bytes) -> bytes:
+    return hash_secret_raw(
+        secret=raw,
+        salt=salt,
+        time_cost=_KDF_TIME_COST,
+        memory_cost=_KDF_MEMORY_COST,
+        parallelism=_KDF_PARALLELISM,
+        hash_len=_KDF_HASH_LEN,
+        type=Type.ID,
+    )
+
+
+def _key_id_for_salt(salt: bytes) -> str:
+    encoded = base64.urlsafe_b64encode(salt).decode("ascii").rstrip("=")
+    return f"{_KDF_PREFIX}{encoded}"
+
+
+def _salt_from_key_id(key_id: str) -> bytes | None:
+    if not key_id.startswith(_KDF_PREFIX):
+        return None
+    encoded = key_id[len(_KDF_PREFIX) :]
+    try:
+        salt = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+    except ValueError as exc:
+        raise SecretIntegrityError("Encrypted secret key version is invalid") from exc
+    if len(salt) != _KDF_SALT_BYTES:
+        raise SecretIntegrityError("Encrypted secret key version is invalid")
+    return salt
+
+
+def _legacy_key(raw: bytes) -> tuple[str, bytes]:
+    key = hashlib.sha256(raw).digest()
+    return hashlib.sha256(key).hexdigest()[:16], key
+
+
 class SecretVault:
     """Small AES-GCM vault for server-side secret values.
 
-    The key is supplied out-of-band through ``SDPSTUDIO_SECRET_KEY`` and is
-    never written to the project database. A deterministic key id helps
-    operators identify which external key must be available for recovery.
+    The passphrase is supplied out-of-band through ``SDPSTUDIO_SECRET_KEY`` and
+    is never written to the project database. New records store only an
+    Argon2id KDF version and random salt as ``key_id``; the database therefore
+    does not contain a fast verifier derived from the passphrase. Legacy
+    SHA-256-derived records remain readable so operators can rotate them in
+    place.
     """
 
     def __init__(self, key: bytes | None = None, previous_keys: dict[str, bytes] | None = None):
         raw = key or os.environ.get("SDPSTUDIO_SECRET_KEY", "").encode("utf-8")
         if len(raw) < 16:
             raise ValueError("SDPSTUDIO_SECRET_KEY must contain at least 16 bytes")
-        self._key = hashlib.sha256(raw).digest()
-        self.key_id = hashlib.sha256(self._key).hexdigest()[:16]
+        self._raw_key = raw
+        active_salt = os.urandom(_KDF_SALT_BYTES)
+        self._key = _derive_key(raw, active_salt)
+        self.key_id = _key_id_for_salt(active_salt)
         self._keys = {self.key_id: self._key}
+
+        legacy_id, legacy_key = _legacy_key(raw)
+        self._keys[legacy_id] = legacy_key
         for key_id, previous in (previous_keys or {}).items():
             if len(previous) < 16:
                 raise ValueError(f"Previous secret key {key_id!r} must contain at least 16 bytes")
-            self._keys[str(key_id)] = hashlib.sha256(previous).digest()
+            normalized_id = str(key_id)
+            salt = _salt_from_key_id(normalized_id)
+            self._keys[normalized_id] = (
+                _derive_key(previous, salt) if salt is not None else hashlib.sha256(previous).digest()
+            )
 
     @classmethod
     def from_environment(cls) -> SecretVault:
@@ -89,11 +145,22 @@ class SecretVault:
         )
         return EncryptedSecret(base64.urlsafe_b64encode(encrypted).decode("ascii"), self.key_id)
 
+    def _resolve_key(self, key_id: str) -> bytes | None:
+        key = self._keys.get(key_id)
+        if key is not None:
+            return key
+        salt = _salt_from_key_id(key_id)
+        if salt is None:
+            return None
+        key = _derive_key(self._raw_key, salt)
+        self._keys[key_id] = key
+        return key
+
     def decrypt(self, secret: EncryptedSecret, associated_data: str = "") -> str:
+        key = self._resolve_key(secret.key_id)
+        if key is None:
+            raise SecretIntegrityError("Encrypted secret key version is unavailable")
         try:
-            key = self._keys.get(secret.key_id)
-            if key is None:
-                raise SecretIntegrityError("Encrypted secret key version is unavailable")
             payload = base64.urlsafe_b64decode(secret.ciphertext.encode("ascii"))
             value = AESGCM(key).decrypt(payload[:12], payload[12:], associated_data.encode("utf-8"))
             return value.decode("utf-8")
