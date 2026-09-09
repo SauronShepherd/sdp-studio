@@ -29,6 +29,7 @@ def test_no_isolation_package_job_installs_declared_build_backend() -> None:
 def test_wheel_data_files_include_canonical_migration_tree() -> None:
     pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
 
+    assert '"share/sdpstudio" = ["alembic.ini"]' in pyproject
     assert '"share/sdpstudio/migrations"' in pyproject
     assert '["migrations/env.py", "migrations/script.py.mako"]' in pyproject
     assert '"share/sdpstudio/migrations/versions"' in pyproject
