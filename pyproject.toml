@@ -51,6 +51,7 @@ include-package-data = true
 sdpstudio_server = ["static/*", "static/react/*", "static/react/assets/*", "examples/retail-etl/*", "examples/retail-etl/.sdpstudio/pipelines/*", "examples/retail-etl/data/*"]
 
 [tool.setuptools.data-files]
+"share/sdpstudio" = ["alembic.ini"]
 "share/sdpstudio/migrations" = ["migrations/env.py", "migrations/script.py.mako"]
 "share/sdpstudio/migrations/versions" = ["migrations/versions/*.py"]
 
