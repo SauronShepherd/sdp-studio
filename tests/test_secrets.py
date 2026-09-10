@@ -11,6 +11,27 @@ def test_secret_vault_encrypts_and_authenticates_values():
         vault.decrypt(encrypted, associated_data="profile-2")
 
 
+def test_secret_vault_uses_independent_salts_for_equal_plaintext():
+    vault = SecretVault(b"local-development-key-1234")
+    first = vault.encrypt("same-secret", associated_data="profile-1")
+    second = vault.encrypt("same-secret", associated_data="profile-1")
+
+    assert first.ciphertext.startswith("v2.")
+    assert second.ciphertext.startswith("v2.")
+    assert first.ciphertext != second.ciphertext
+    assert first.ciphertext.split(".", 2)[1] != second.ciphertext.split(".", 2)[1]
+
+
+def test_v2_ciphertext_survives_process_key_id_regeneration():
+    raw_key = b"local-development-key-1234"
+    first_process = SecretVault(raw_key)
+    encrypted = first_process.encrypt("restart-safe", associated_data="profile-1")
+
+    second_process = SecretVault(raw_key)
+    assert second_process.key_id != first_process.key_id
+    assert second_process.decrypt(encrypted, associated_data="profile-1") == "restart-safe"
+
+
 def test_secret_vault_requires_external_key():
     with pytest.raises(ValueError):
         SecretVault(b"short")
