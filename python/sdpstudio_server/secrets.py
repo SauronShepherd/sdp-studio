@@ -141,9 +141,13 @@ class SecretVault:
             raise SecretIntegrityError("Encrypted secret format is invalid")
 
         raw_candidates = [self._raw_key]
-        previous = self._previous_raw_keys.get(secret.key_id)
-        if previous is not None and previous not in raw_candidates:
-            raw_candidates.append(previous)
+        preferred_previous = self._previous_raw_keys.get(secret.key_id)
+        if preferred_previous is not None and preferred_previous not in raw_candidates:
+            raw_candidates.append(preferred_previous)
+        for previous in self._previous_raw_keys.values():
+            if previous not in raw_candidates:
+                raw_candidates.append(previous)
+
         for raw in raw_candidates:
             key = _derive_argon2id(raw, salt)
             try:
