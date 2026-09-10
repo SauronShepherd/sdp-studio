@@ -11,7 +11,6 @@ from argon2.low_level import Type, hash_secret_raw
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-
 _V2_KEY_PREFIX = "argon2id-v2:"
 _V2_CIPHERTEXT_PREFIX = "v2."
 _KDF_SALT_BYTES = 16
