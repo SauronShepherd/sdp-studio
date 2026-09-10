@@ -40,7 +40,7 @@ observability = ["opentelemetry-api>=1.27,<2", "opentelemetry-sdk>=1.27,<2", "op
 collaboration = []
 
 [project.scripts]
-sdpstudio = "sdpstudio_cli.main:main"
+sdpstudio = "sdpstudio_cli.entry:main"
 
 [tool.setuptools]
 package-dir = {"" = "python"}
