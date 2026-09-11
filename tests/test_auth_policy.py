@@ -49,8 +49,7 @@ def test_G1_websocket_auth_is_skippable_only_when_no_auth_exists(
     required: bool,
 ) -> None:
     assert (
-        websocket_auth_required(shared_token, auth_service_present=auth_service_present)
-        is required
+        websocket_auth_required(shared_token, auth_service_present=auth_service_present) is required
     )
 
 
