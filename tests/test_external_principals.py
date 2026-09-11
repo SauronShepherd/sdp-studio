@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import sqlite3
 
-import pytest
-
 from sdpstudio_server.external_principals import (
     ExternalPrincipalAuthorizationError,
     ExternalPrincipalStore,
 )
 from sdpstudio_server.oidc_identity import OIDCIdentity
+
+import pytest
 
 
 def _store(tmp_path):
