@@ -26,9 +26,10 @@ def _normalize_issuer(value: str) -> str:
 def identity_from_claims(config: OIDCConfig, claims: Mapping[str, object]) -> OIDCIdentity:
     issuer = _normalize_issuer(config.issuer)
     claim_issuer = claims.get("iss")
-    if claim_issuer is not None:
-        if not isinstance(claim_issuer, str) or _normalize_issuer(claim_issuer) != issuer:
-            raise ValueError("OIDC identity issuer did not match configured issuer")
+    if claim_issuer is not None and (
+        not isinstance(claim_issuer, str) or _normalize_issuer(claim_issuer) != issuer
+    ):
+        raise ValueError("OIDC identity issuer did not match configured issuer")
 
     subject = claims.get("sub")
     if not isinstance(subject, str) or not subject.strip():
