@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from sdpstudio_server.auth_policy import role_allowed, websocket_auth_required
 
 
