@@ -48,9 +48,10 @@ def test_G1_websocket_auth_is_skippable_only_when_no_auth_exists(
     auth_service_present: bool,
     required: bool,
 ) -> None:
-    assert websocket_auth_required(
-        shared_token, auth_service_present=auth_service_present
-    ) is required
+    assert (
+        websocket_auth_required(shared_token, auth_service_present=auth_service_present)
+        is required
+    )
 
 
 def test_G1_unknown_roles_fail_closed() -> None:
