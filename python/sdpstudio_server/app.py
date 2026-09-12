@@ -410,7 +410,7 @@ def _http_error(exc: Exception) -> HTTPException:
     return HTTPException(status_code=500, detail=str(exc))
 
 
-def _require_role(request: Request, minimum: str, *, auth_required: bool) -> None:
+def _require_role(request: Request, minimum: str, *, auth_required: bool = True) -> None:
     identity = getattr(request.state, "identity", None)
     if not role_allowed(identity, minimum, auth_required=auth_required):
         raise HTTPException(
