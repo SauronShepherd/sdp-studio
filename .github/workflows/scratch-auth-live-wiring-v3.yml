@@ -1,0 +1,34 @@
+name: scratch-auth-live-wiring-v3
+
+on:
+  push:
+    branches: [scratch/2026-09-12-auth-live-wiring]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Preserve encoded WebSocket credential contract
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('python/sdpstudio_server/app.py')
+          s = p.read_text(encoding='utf-8')
+          old = '''def _websocket_authorized(\n    ws: WebSocket, expected: str | None, auth_service: AuthService | None = None\n) -> bool:\n    if not websocket_auth_required(\n        expected, auth_service_present=auth_service is not None\n    ):\n        return True\n    for protocol in _websocket_protocols(ws):\n        if expected and hmac.compare_digest(protocol, expected):\n            return True\n        if protocol.startswith("sdpstudio.auth.") and auth_service:\n            token = protocol[len("sdpstudio.auth.") :]\n            if auth_service.verify(token) is not None:\n                return True\n    return False\n'''
+          new = '''def _websocket_authorized(\n    ws: WebSocket, expected: str | None, auth_service: AuthService | None = None\n) -> bool:\n    if not websocket_auth_required(\n        expected, auth_service_present=auth_service is not None\n    ):\n        return True\n    for protocol in _websocket_protocols(ws):\n        if not protocol.startswith("sdpstudio.auth."):\n            continue\n        encoded = protocol.removeprefix("sdpstudio.auth.")\n        try:\n            padded = encoded + "=" * (-len(encoded) % 4)\n            supplied = base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")\n        except (ValueError, UnicodeDecodeError):\n            continue\n        if supplied and expected and hmac.compare_digest(supplied, expected):\n            return True\n        if supplied and auth_service and auth_service.verify(supplied):\n            return True\n    return False\n'''
+          assert s.count(old) == 1
+          p.write_text(s.replace(old, new, 1), encoding='utf-8', newline='\n')
+      - name: Remove scratch workflow and commit
+        run: |
+          rm .github/workflows/scratch-auth-live-wiring-v3.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: preserve websocket credential encoding"
+          git push origin HEAD:scratch/2026-09-12-auth-live-wiring
