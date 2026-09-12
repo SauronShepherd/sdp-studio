@@ -54,9 +54,7 @@ def test_openapi_requires_authentication(monkeypatch, tmp_path):
     rejected = client.get("/openapi.json")
     assert rejected.status_code == 401
 
-    accepted = client.get(
-        "/openapi.json", headers={"Authorization": "Bearer shared-test-token"}
-    )
+    accepted = client.get("/openapi.json", headers={"Authorization": "Bearer shared-test-token"})
     assert accepted.status_code == 200
     assert accepted.json()["openapi"]
 
