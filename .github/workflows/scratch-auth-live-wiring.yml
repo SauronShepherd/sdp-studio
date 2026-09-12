@@ -1,0 +1,123 @@
+name: scratch-auth-live-wiring
+
+on:
+  push:
+    branches:
+      - scratch/2026-09-12-auth-live-wiring
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Apply exact live-auth wiring
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          path = Path('python/sdpstudio_server/app.py')
+          text = path.read_text(encoding='utf-8')
+
+          def replace_once(old: str, new: str) -> None:
+              global text
+              count = text.count(old)
+              assert count == 1, f'expected exactly one match, got {count}: {old[:80]!r}'
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              'from .auth_bootstrap import AuthBootstrapService\n',
+              'from .auth_bootstrap import AuthBootstrapService\n'
+              'from .auth_policy import role_allowed, websocket_auth_required\n'
+              'from .external_principals import (\n'
+              '    ExternalPrincipalAuthorizationError,\n'
+              '    ExternalPrincipalStore,\n'
+              ')\n',
+          )
+          replace_once(
+              'from .oidc import (\n'
+              '    OIDCConfig,\n'
+              '    OIDCState,\n'
+              '    authorization_url,\n'
+              '    discover,\n'
+              '    exchange_code,\n'
+              '    fetch_userinfo,\n'
+              '    validate_id_token_nonce,\n'
+              ')\n',
+              'from .oidc import (\n'
+              '    OIDCConfig,\n'
+              '    OIDCState,\n'
+              '    authorization_url,\n'
+              '    discover,\n'
+              '    exchange_code,\n'
+              '    fetch_userinfo,\n'
+              '    validate_id_token_nonce,\n'
+              ')\n'
+              'from .oidc_authorization import authorize_oidc_principal\n',
+          )
+
+          old_role = '''def _require_role(request: Request, minimum: str) -> None:\n    rank = {"viewer": 0, "editor": 1, "admin": 2}\n    identity = getattr(request.state, "identity", None)\n    if identity is None:\n        return\n    if rank.get(str(identity.get("role")), -1) < rank[minimum]:\n        raise HTTPException(\n            status_code=403,\n            detail={\n                "code": "SDPS-AUTH-ROLE_REQUIRED",\n                "message": f"Role '{minimum}' or higher is required",\n                "required_role": minimum,\n            },\n        )\n'''
+          new_role = '''def _require_role(\n    request: Request, minimum: str, *, auth_required: bool\n) -> None:\n    identity = getattr(request.state, "identity", None)\n    if not role_allowed(identity, minimum, auth_required=auth_required):\n        raise HTTPException(\n            status_code=403,\n            detail={\n                "code": "SDPS-AUTH-ROLE_REQUIRED",\n                "message": f"Role '{minimum}' or higher is required",\n                "required_role": minimum,\n            },\n        )\n'''
+          replace_once(old_role, new_role)
+
+          role_calls = re.findall(r'_require_role\(request, ("(?:viewer|editor|admin)")\)', text)
+          assert role_calls, 'expected role-protected route calls'
+          text = re.sub(
+              r'_require_role\(request, ("(?:viewer|editor|admin)")\)',
+              r'_require_role(request, \1, auth_required=auth_required)',
+              text,
+          )
+          assert '_require_role(request, "' not in text.replace('auth_required=auth_required', '')
+
+          old_ws = '''def _websocket_authorized(\n    ws: WebSocket, expected: str | None, auth_service: AuthService | None = None\n) -> bool:\n    if not expected:\n        return True\n    for protocol in _websocket_protocols(ws):\n        if hmac.compare_digest(protocol, expected):\n            return True\n        if protocol.startswith("sdpstudio.auth.") and auth_service:\n            token = protocol[len("sdpstudio.auth.") :]\n            if auth_service.verify(token) is not None:\n                return True\n    return False\n'''
+          new_ws = '''def _websocket_authorized(\n    ws: WebSocket, expected: str | None, auth_service: AuthService | None = None\n) -> bool:\n    if not websocket_auth_required(\n        expected, auth_service_present=auth_service is not None\n    ):\n        return True\n    for protocol in _websocket_protocols(ws):\n        if expected and hmac.compare_digest(protocol, expected):\n            return True\n        if protocol.startswith("sdpstudio.auth.") and auth_service:\n            token = protocol[len("sdpstudio.auth.") :]\n            if auth_service.verify(token) is not None:\n                return True\n    return False\n'''
+          replace_once(old_ws, new_ws)
+
+          cors = '''    app.add_middleware(\n        CORSMiddleware,\n        allow_origins=["http://127.0.0.1:8787", "http://localhost:8787"],\n        allow_methods=["*"],\n        allow_headers=["*"],\n    )\n'''
+          replace_once(cors, '')
+
+          auth_marker = '''    @app.middleware("http")\n    async def auth_middleware(request: Request, call_next):\n        started = monotonic()\n'''
+          auth_repl = '''    @app.middleware("http")\n    async def auth_middleware(request: Request, call_next):\n        # Normalize the public version alias before deciding whether the route\n        # is protected. The dedicated alias middleware remains the routing\n        # compatibility boundary, but authorization must see the canonical path.\n        prefix = "/api/v1"\n        if request.scope.get("path", "").startswith(prefix + "/"):\n            request.scope["path"] = "/api" + request.scope["path"][len(prefix) :]\n            request.scope["raw_path"] = request.scope["path"].encode("ascii", "ignore")\n        started = monotonic()\n'''
+          replace_once(auth_marker, auth_repl)
+
+          replace_once(
+              '    store = DataStore(data_root)\n    async_store = AsyncStore(store)\n',
+              '    store = DataStore(data_root)\n'
+              '    external_principals = ExternalPrincipalStore(store._connect)\n'
+              '    async_store = AsyncStore(store)\n',
+          )
+
+          old_oidc = '''        subject = str(claims.get("sub") or claims.get("email") or "")\n        if not subject or auth_service is None:\n            raise HTTPException(status_code=502, detail="OIDC identity did not contain a subject")\n        username = str(claims.get("email") or claims.get("preferred_username") or subject)\n        username = username.replace("@", "_")\n        users = await async_store.call("list_users")\n        existing = next((item for item in users if item["username"] == username), None)\n        role = str(existing["role"]) if existing else "viewer"\n        if existing is None:\n            # OIDC users do not receive a local password; they authenticate only through OIDC.\n            password_hash = AuthService.hash_password(secrets.token_urlsafe(24))\n            auth_service.add_hashed_user(username, password_hash, role)\n            await async_store.call("save_user", username, role, password_hash)\n        session_token = auth_service.issue_session(username, role)\n'''
+          new_oidc = '''        if auth_service is None:\n            raise HTTPException(status_code=503, detail="Local authentication is not configured")\n        try:\n            principal = authorize_oidc_principal(oidc_config, claims, external_principals)\n        except (ValueError, ExternalPrincipalAuthorizationError) as exc:\n            raise HTTPException(status_code=403, detail="OIDC identity is not authorized") from exc\n        username = principal.username\n        role = principal.role\n        session_token = auth_service.issue_session(username, role)\n'''
+          replace_once(old_oidc, new_oidc)
+
+          return_marker = '\n    return app\n'
+          assert text.count(return_marker) == 1, 'expected one create_app return'
+          text = text.replace(
+              return_marker,
+              '''\n    # Add CORS last so preflight handling is the outermost HTTP middleware and\n    # cannot be rejected by authentication before the browser can negotiate it.\n    app.add_middleware(\n        CORSMiddleware,\n        allow_origins=["http://127.0.0.1:8787", "http://localhost:8787"],\n        allow_methods=["*"],\n        allow_headers=["*"],\n    )\n\n    return app\n''',
+              1,
+          )
+
+          path.write_text(text, encoding='utf-8', newline='\n')
+
+          tests = Path('tests/test_auth_live_wiring.py')
+          tests.write_text('''from fastapi.testclient import TestClient\nimport pytest\nfrom starlette.websockets import WebSocketDisconnect\n\nfrom sdpstudio_server.app import create_app\n\n\ndef _clear_auth(monkeypatch):\n    for name in (\n        "SDPSTUDIO_AUTH_TOKEN",\n        "SDPSTUDIO_AUTH_SIGNING_KEY",\n        "SDPSTUDIO_ADMIN_PASSWORD",\n        "SDPSTUDIO_DATABASE_URL",\n        "SDPSTUDIO_OIDC_ISSUER",\n        "SDPSTUDIO_OIDC_CLIENT_ID",\n        "SDPSTUDIO_OIDC_REDIRECT_URI",\n    ):\n        monkeypatch.delenv(name, raising=False)\n\n\ndef test_shared_bearer_does_not_gain_admin_role(monkeypatch, tmp_path):\n    _clear_auth(monkeypatch)\n    monkeypatch.setenv("SDPSTUDIO_AUTH_TOKEN", "shared-test-token")\n    client = TestClient(create_app(tmp_path))\n    response = client.get(\n        "/api/auth/users", headers={"Authorization": "Bearer shared-test-token"}\n    )\n    assert response.status_code == 403\n    assert response.json()["detail"]["code"] == "SDPS-AUTH-ROLE_REQUIRED"\n\n\ndef test_versioned_alias_is_authorized_before_routing(monkeypatch, tmp_path):\n    _clear_auth(monkeypatch)\n    monkeypatch.setenv("SDPSTUDIO_AUTH_TOKEN", "shared-test-token")\n    client = TestClient(create_app(tmp_path))\n    response = client.get(\n        "/api/v1/auth/users", headers={"Authorization": "Bearer shared-test-token"}\n    )\n    assert response.status_code == 403\n\n\ndef test_cors_preflight_is_not_rejected_by_auth(monkeypatch, tmp_path):\n    _clear_auth(monkeypatch)\n    monkeypatch.setenv("SDPSTUDIO_AUTH_TOKEN", "shared-test-token")\n    client = TestClient(create_app(tmp_path))\n    response = client.options(\n        "/api/v1/auth/users",\n        headers={\n            "Origin": "http://localhost:8787",\n            "Access-Control-Request-Method": "GET",\n        },\n    )\n    assert response.status_code == 200\n    assert response.headers["access-control-allow-origin"] == "http://localhost:8787"\n\n\ndef test_local_admin_session_satisfies_admin_role(monkeypatch, tmp_path):\n    _clear_auth(monkeypatch)\n    monkeypatch.setenv("SDPSTUDIO_AUTH_SIGNING_KEY", "live-wiring-signing-key")\n    monkeypatch.setenv("SDPSTUDIO_ADMIN_PASSWORD", "admin-test-password")\n    client = TestClient(create_app(tmp_path))\n    login = client.post(\n        "/api/auth/login",\n        json={"username": "admin", "password": "admin-test-password"},\n    )\n    assert login.status_code == 200\n    response = client.get("/api/auth/users")\n    assert response.status_code == 200\n\n\ndef test_websocket_requires_auth_when_local_auth_is_configured(monkeypatch, tmp_path):\n    _clear_auth(monkeypatch)\n    monkeypatch.setenv("SDPSTUDIO_AUTH_SIGNING_KEY", "live-wiring-signing-key")\n    monkeypatch.setenv("SDPSTUDIO_ADMIN_PASSWORD", "admin-test-password")\n    client = TestClient(create_app(tmp_path))\n    with pytest.raises(WebSocketDisconnect) as exc:\n        with client.websocket_connect(\n            "/ws/runs/missing", subprotocols=["sdpstudio.v1"]\n        ):\n            pass\n    assert exc.value.code == 4401\n''', encoding='utf-8', newline='\n')
+      - name: Remove scratch workflow and commit result
+        run: |
+          rm .github/workflows/scratch-auth-live-wiring.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add python/sdpstudio_server/app.py tests/test_auth_live_wiring.py .github/workflows/scratch-auth-live-wiring.yml
+          git diff --cached --check
+          git commit -m "security: wire live authorization boundaries"
+          git push origin HEAD:scratch/2026-09-12-auth-live-wiring
