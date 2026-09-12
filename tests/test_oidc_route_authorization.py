@@ -1,5 +1,4 @@
 from fastapi.testclient import TestClient
-
 from sdpstudio_server.app import create_app
 from sdpstudio_server.external_principals import ExternalPrincipalStore
 from sdpstudio_server.oidc_identity import OIDCIdentity
@@ -18,9 +17,7 @@ def _configure_oidc(monkeypatch) -> None:
     monkeypatch.setenv("SDPSTUDIO_ADMIN_PASSWORD", "admin-test-password")
     monkeypatch.setenv("SDPSTUDIO_OIDC_ISSUER", "https://issuer.example")
     monkeypatch.setenv("SDPSTUDIO_OIDC_CLIENT_ID", "sdpstudio-test")
-    monkeypatch.setenv(
-        "SDPSTUDIO_OIDC_REDIRECT_URI", "http://testserver/api/auth/oidc/callback"
-    )
+    monkeypatch.setenv("SDPSTUDIO_OIDC_REDIRECT_URI", "http://testserver/api/auth/oidc/callback")
     monkeypatch.setenv("SDPSTUDIO_OIDC_JWKS_URI", "https://issuer.example/jwks")
 
 
@@ -55,7 +52,9 @@ def test_oidc_callback_cannot_select_local_admin_by_email(monkeypatch, tmp_path)
         "sdpstudio_server.app.exchange_code",
         lambda config, code: {"access_token": "route-test-access", "id_token": "stub"},
     )
-    monkeypatch.setattr("sdpstudio_server.app.validate_id_token_nonce", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "sdpstudio_server.app.validate_id_token_nonce", lambda *args, **kwargs: None
+    )
 
     claims = {
         "iss": "https://issuer.example",
@@ -66,9 +65,7 @@ def test_oidc_callback_cannot_select_local_admin_by_email(monkeypatch, tmp_path)
     monkeypatch.setattr("sdpstudio_server.app.fetch_userinfo", lambda config, token: claims)
 
     state = client.get("/api/auth/oidc/start").json()["state"]
-    rejected = client.get(
-        "/api/auth/oidc/callback", params={"code": "code-1", "state": state}
-    )
+    rejected = client.get("/api/auth/oidc/callback", params={"code": "code-1", "state": state})
     assert rejected.status_code == 403
     assert rejected.json()["detail"] == "OIDC identity is not authorized"
 
@@ -82,8 +79,6 @@ def test_oidc_callback_cannot_select_local_admin_by_email(monkeypatch, tmp_path)
     )
     claims["sub"] = "linked-subject"
     state = client.get("/api/auth/oidc/start").json()["state"]
-    accepted = client.get(
-        "/api/auth/oidc/callback", params={"code": "code-2", "state": state}
-    )
+    accepted = client.get("/api/auth/oidc/callback", params={"code": "code-2", "state": state})
     assert accepted.status_code == 200
     assert accepted.json() == {"username": "same_example.test", "role": "admin"}
