@@ -46,6 +46,21 @@ def test_cors_preflight_is_outermost(monkeypatch, tmp_path):
     assert r.headers["access-control-allow-origin"] == "http://localhost:8787"
 
 
+def test_openapi_requires_authentication(monkeypatch, tmp_path):
+    _clear(monkeypatch)
+    monkeypatch.setenv("SDPSTUDIO_AUTH_TOKEN", "shared-test-token")
+    client = TestClient(create_app(tmp_path))
+
+    rejected = client.get("/openapi.json")
+    assert rejected.status_code == 401
+
+    accepted = client.get(
+        "/openapi.json", headers={"Authorization": "Bearer shared-test-token"}
+    )
+    assert accepted.status_code == 200
+    assert accepted.json()["openapi"]
+
+
 def test_local_admin_session_satisfies_admin_role(monkeypatch, tmp_path):
     _clear(monkeypatch)
     monkeypatch.setenv("SDPSTUDIO_AUTH_SIGNING_KEY", "live-wiring-signing-key")
