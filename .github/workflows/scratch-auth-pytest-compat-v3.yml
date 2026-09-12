@@ -1,0 +1,53 @@
+name: scratch-auth-pytest-compat-v3
+
+on:
+  push:
+    branches: [scratch/2026-09-12-auth-pytest-compat]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: pip install -e '.[dev]'
+      - name: Apply secure compatibility fixes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          app = Path('python/sdpstudio_server/app.py')
+          text = app.read_text(encoding='utf-8')
+          old = 'def _require_role(request: Request, minimum: str, *, auth_required: bool) -> None:\n'
+          new = 'def _require_role(request: Request, minimum: str, *, auth_required: bool = True) -> None:\n'
+          assert text.count(old) == 1
+          app.write_text(text.replace(old, new, 1), encoding='utf-8', newline='\n')
+
+          test = Path('tests/test_storage_api.py')
+          text = test.read_text(encoding='utf-8')
+          old = '''    headers = {"Authorization": f"Bearer {token}"}\n    project = client.post("/api/projects", json={"name": "secure-collab"}, headers=headers).json()\n    encoded = base64.urlsafe_b64encode(token.encode("utf-8")).decode("ascii").rstrip("=")\n'''
+          new = '''    project_id = "01JZZZZZZZZZZZZZZZZZZZZZZZ"\n    project_path = tmp_path / "projects" / project_id\n    project_path.mkdir(parents=True)\n    with client.app.state.store._connect() as conn:\n        conn.execute(\n            "INSERT INTO projects(id,name,path,created_at,updated_at) VALUES(?,?,?,?,?)",\n            (project_id, "secure-collab", str(project_path), "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),\n        )\n    project = {"id": project_id}\n    encoded = base64.urlsafe_b64encode(token.encode("utf-8")).decode("ascii").rstrip("=")\n'''
+          assert text.count(old) == 1
+          test.write_text(text.replace(old, new, 1), encoding='utf-8', newline='\n')
+      - name: Validate focused regressions
+        run: |
+          ruff format python/sdpstudio_server/app.py tests/test_storage_api.py
+          ruff check python/sdpstudio_server/app.py tests/test_auth.py tests/test_storage_api.py
+          ruff format --check python/sdpstudio_server/app.py tests/test_auth.py tests/test_storage_api.py
+          mypy
+          pytest -q tests/test_auth.py::test_role_claims_are_ordered tests/test_storage_api.py::test_websocket_auth_uses_subprotocol_not_query_string tests/test_auth_live_wiring.py
+      - name: Commit candidate
+        run: |
+          rm -f .github/workflows/scratch-auth-pytest-compat.yml .github/workflows/scratch-auth-pytest-compat-v3.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git diff --cached --check
+          git commit -m "test: align auth regressions with fail-closed roles"
+          git push origin HEAD:scratch/2026-09-12-auth-pytest-compat
