@@ -1,0 +1,44 @@
+name: scratch-auth-role-calls
+
+on:
+  push:
+    branches: [scratch/2026-09-12-auth-role-calls]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: pip install ruff==0.16.7
+      - name: Patch exactly two multiline role checks
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('python/sdpstudio_server/app.py')
+          s = p.read_text(encoding='utf-8')
+          old1 = '''            _require_role(\n                request,\n                "admin" if req.adapter in {"kubernetes", "databricks"} else "editor",\n            )\n'''
+          new1 = '''            _require_role(\n                request,\n                "admin" if req.adapter in {"kubernetes", "databricks"} else "editor",\n                auth_required=auth_required,\n            )\n'''
+          old2 = '''            _require_role(\n                request,\n                "admin"\n                if profile.get("adapter") in {"kubernetes", "databricks"}\n                or profile.get("is_protected")\n                else "editor",\n            )\n'''
+          new2 = '''            _require_role(\n                request,\n                "admin"\n                if profile.get("adapter") in {"kubernetes", "databricks"}\n                or profile.get("is_protected")\n                else "editor",\n                auth_required=auth_required,\n            )\n'''
+          assert s.count(old1) == 1
+          assert s.count(old2) == 1
+          s = s.replace(old1, new1, 1).replace(old2, new2, 1)
+          p.write_text(s, encoding='utf-8', newline='\n')
+      - name: Verify style and commit
+        run: |
+          ruff check python/sdpstudio_server/app.py
+          ruff format --check python/sdpstudio_server/app.py
+          rm .github/workflows/scratch-auth-role-calls.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: fail closed on runtime profile roles"
+          git push origin HEAD:scratch/2026-09-12-auth-role-calls
