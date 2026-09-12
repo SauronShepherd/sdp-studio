@@ -504,12 +504,18 @@ def _websocket_authorized(
     ):
         return True
     for protocol in _websocket_protocols(ws):
-        if expected and hmac.compare_digest(protocol, expected):
+        if not protocol.startswith("sdpstudio.auth."):
+            continue
+        encoded = protocol.removeprefix("sdpstudio.auth.")
+        try:
+            padded = encoded + "=" * (-len(encoded) % 4)
+            supplied = base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if supplied and expected and hmac.compare_digest(supplied, expected):
             return True
-        if protocol.startswith("sdpstudio.auth.") and auth_service:
-            token = protocol[len("sdpstudio.auth.") :]
-            if auth_service.verify(token) is not None:
-                return True
+        if supplied and auth_service and auth_service.verify(supplied):
+            return True
     return False
 
 
