@@ -64,13 +64,13 @@ from .async_store import AsyncStore
 from .auth import AuthService
 from .auth_bootstrap import AuthBootstrapService
 from .auth_policy import role_allowed, websocket_auth_required
+from .collab import COLLABORATION_CAPABILITIES, CollaborationHub
+from .collaboration_merge import merge_updates, server_merge_available
+from .debug_bundle_service import build_entries
 from .external_principals import (
     ExternalPrincipalAuthorizationError,
     ExternalPrincipalStore,
 )
-from .collab import COLLABORATION_CAPABILITIES, CollaborationHub
-from .collaboration_merge import merge_updates, server_merge_available
-from .debug_bundle_service import build_entries
 from .filesystem import FileConflictError, UnsafePathError
 from .observability import (
     configure_otel,
