@@ -1332,6 +1332,7 @@ def create_app(
             _require_role(
                 request,
                 "admin" if req.adapter in {"kubernetes", "databricks"} else "editor",
+                auth_required=auth_required,
             )
             result = await async_store.call(
                 "create_runtime_profile",
@@ -1362,6 +1363,7 @@ def create_app(
                 if profile.get("adapter") in {"kubernetes", "databricks"}
                 or profile.get("is_protected")
                 else "editor",
+                auth_required=auth_required,
             )
             await async_store.call("delete_runtime_profile", profile_id)
             await async_store.call(
