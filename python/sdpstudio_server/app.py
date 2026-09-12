@@ -410,9 +410,7 @@ def _http_error(exc: Exception) -> HTTPException:
     return HTTPException(status_code=500, detail=str(exc))
 
 
-def _require_role(
-    request: Request, minimum: str, *, auth_required: bool
-) -> None:
+def _require_role(request: Request, minimum: str, *, auth_required: bool) -> None:
     identity = getattr(request.state, "identity", None)
     if not role_allowed(identity, minimum, auth_required=auth_required):
         raise HTTPException(
@@ -499,9 +497,7 @@ def _decode_collaboration_update(value: str) -> bytes:
 def _websocket_authorized(
     ws: WebSocket, expected: str | None, auth_service: AuthService | None = None
 ) -> bool:
-    if not websocket_auth_required(
-        expected, auth_service_present=auth_service is not None
-    ):
+    if not websocket_auth_required(expected, auth_service_present=auth_service is not None):
         return True
     for protocol in _websocket_protocols(ws):
         if not protocol.startswith("sdpstudio.auth."):
