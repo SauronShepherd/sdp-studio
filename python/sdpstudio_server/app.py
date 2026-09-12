@@ -63,6 +63,11 @@ from . import git_service
 from .async_store import AsyncStore
 from .auth import AuthService
 from .auth_bootstrap import AuthBootstrapService
+from .auth_policy import role_allowed, websocket_auth_required
+from .external_principals import (
+    ExternalPrincipalAuthorizationError,
+    ExternalPrincipalStore,
+)
 from .collab import COLLABORATION_CAPABILITIES, CollaborationHub
 from .collaboration_merge import merge_updates, server_merge_available
 from .debug_bundle_service import build_entries
@@ -84,6 +89,7 @@ from .oidc import (
     fetch_userinfo,
     validate_id_token_nonce,
 )
+from .oidc_authorization import authorize_oidc_principal
 from .project_resources import ProjectResourceService
 from .provider_reviews import (
     list_provider_reviews,
@@ -404,12 +410,11 @@ def _http_error(exc: Exception) -> HTTPException:
     return HTTPException(status_code=500, detail=str(exc))
 
 
-def _require_role(request: Request, minimum: str) -> None:
-    rank = {"viewer": 0, "editor": 1, "admin": 2}
+def _require_role(
+    request: Request, minimum: str, *, auth_required: bool
+) -> None:
     identity = getattr(request.state, "identity", None)
-    if identity is None:
-        return
-    if rank.get(str(identity.get("role")), -1) < rank[minimum]:
+    if not role_allowed(identity, minimum, auth_required=auth_required):
         raise HTTPException(
             status_code=403,
             detail={
@@ -494,21 +499,17 @@ def _decode_collaboration_update(value: str) -> bytes:
 def _websocket_authorized(
     ws: WebSocket, expected: str | None, auth_service: AuthService | None = None
 ) -> bool:
-    if not expected:
+    if not websocket_auth_required(
+        expected, auth_service_present=auth_service is not None
+    ):
         return True
     for protocol in _websocket_protocols(ws):
-        if not protocol.startswith("sdpstudio.auth."):
-            continue
-        encoded = protocol.removeprefix("sdpstudio.auth.")
-        try:
-            padded = encoded + "=" * (-len(encoded) % 4)
-            supplied = base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
-        except (ValueError, UnicodeDecodeError):
-            continue
-        if supplied and expected and hmac.compare_digest(supplied, expected):
+        if expected and hmac.compare_digest(protocol, expected):
             return True
-        if supplied and auth_service and auth_service.verify(supplied):
-            return True
+        if protocol.startswith("sdpstudio.auth.") and auth_service:
+            token = protocol[len("sdpstudio.auth.") :]
+            if auth_service.verify(token) is not None:
+                return True
     return False
 
 
@@ -560,12 +561,6 @@ def create_app(
         description="Open-source visual IDE API for Apache Spark Declarative Pipelines",
     )
     settings = ServerSettings.from_env(data_root)
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["http://127.0.0.1:8787", "http://localhost:8787"],
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
     request_metrics: dict[str, float] = {
         "requests_total": 0,
         "responses_4xx": 0,
@@ -641,6 +636,10 @@ def create_app(
 
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
+        prefix = "/api/v1"
+        if request.scope.get("path", "").startswith(prefix + "/"):
+            request.scope["path"] = "/api" + request.scope["path"][len(prefix) :]
+            request.scope["raw_path"] = request.scope["path"].encode("ascii", "ignore")
         started = monotonic()
         request_id = request.headers.get("x-request-id") or uuid4().hex
         context_token = request_id_context.set(request_id)
@@ -773,6 +772,7 @@ def create_app(
         return response
 
     store = DataStore(data_root)
+    external_principals = ExternalPrincipalStore(store._connect)
     async_store = AsyncStore(store)
 
     resources = ProjectResourceService(workspace_root=store.projects_root)
@@ -1066,19 +1066,14 @@ def create_app(
             claims = await asyncio.to_thread(fetch_userinfo, resolved_oidc, access_token)
         except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
             raise HTTPException(status_code=502, detail="OIDC identity exchange failed") from exc
-        subject = str(claims.get("sub") or claims.get("email") or "")
-        if not subject or auth_service is None:
-            raise HTTPException(status_code=502, detail="OIDC identity did not contain a subject")
-        username = str(claims.get("email") or claims.get("preferred_username") or subject)
-        username = username.replace("@", "_")
-        users = await async_store.call("list_users")
-        existing = next((item for item in users if item["username"] == username), None)
-        role = str(existing["role"]) if existing else "viewer"
-        if existing is None:
-            # OIDC users do not receive a local password; they authenticate only through OIDC.
-            password_hash = AuthService.hash_password(secrets.token_urlsafe(24))
-            auth_service.add_hashed_user(username, password_hash, role)
-            await async_store.call("save_user", username, role, password_hash)
+        if auth_service is None:
+            raise HTTPException(status_code=503, detail="Local authentication is not configured")
+        try:
+            principal = authorize_oidc_principal(oidc_config, claims, external_principals)
+        except (ValueError, ExternalPrincipalAuthorizationError) as exc:
+            raise HTTPException(status_code=403, detail="OIDC identity is not authorized") from exc
+        username = principal.username
+        role = principal.role
         session_token = auth_service.issue_session(username, role)
         csrf = secrets.token_urlsafe(32)
         response.set_cookie(
@@ -1110,17 +1105,17 @@ def create_app(
 
     @app.get("/api/auth/users")
     async def list_users(request: Request) -> list[dict[str, Any]]:
-        _require_role(request, "admin")
+        _require_role(request, "admin", auth_required=auth_required)
         return await async_store.call("list_users")
 
     @app.get("/api/auth/audit")
     async def audit_events(request: Request, limit: int = 100) -> list[dict[str, Any]]:
-        _require_role(request, "admin")
+        _require_role(request, "admin", auth_required=auth_required)
         return await async_store.call("list_audit_events", limit)
 
     @app.post("/api/auth/users")
     async def create_user(req: UserRequest, request: Request) -> dict[str, Any]:
-        _require_role(request, "admin")
+        _require_role(request, "admin", auth_required=auth_required)
         if auth_service is None:
             raise HTTPException(status_code=503, detail="Local authentication is not configured")
         user = auth_service.add_user(req.username, req.password, req.role)
@@ -1139,7 +1134,7 @@ def create_app(
     async def update_user_role(
         username: str, req: UserRoleRequest, request: Request
     ) -> dict[str, Any]:
-        _require_role(request, "admin")
+        _require_role(request, "admin", auth_required=auth_required)
         if auth_service is None:
             raise HTTPException(status_code=503, detail="Local authentication is not configured")
         try:
@@ -1250,7 +1245,7 @@ def create_app(
         project_id: str, req: ImportPythonRequest, request: Request
     ) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             document = await async_store.call("load_pipeline", project_id)
             result = reconcile_python(document, req.source)
             if result.ownership == "visual" and result.changed:
@@ -1270,7 +1265,7 @@ def create_app(
         project_id: str, req: ImportSqlRequest, request: Request
     ) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             document = await async_store.call("load_pipeline", project_id)
             result = reconcile_sql(document, req.source)
             if result.ownership == "visual" and result.changed:
@@ -1382,7 +1377,7 @@ def create_app(
         profile_id: str, req: RuntimeProfileUpdateRequest, request: Request
     ) -> dict[str, Any]:
         try:
-            _require_role(request, "admin")
+            _require_role(request, "admin", auth_required=auth_required)
             result = await async_store.call(
                 "update_runtime_profile",
                 profile_id,
@@ -1421,7 +1416,7 @@ def create_app(
     @app.post("/api/runtime-profiles/{profile_id}/test")
     async def test_runtime_profile(profile_id: str, request: Request) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             profile = await async_store.call("get_runtime_profile", profile_id)
             result = probe_profile(profile).model_dump()
             if profile.get("adapter") == "kubernetes":
@@ -1437,7 +1432,7 @@ def create_app(
     @app.post("/api/projects", response_model=ProjectResponse)
     async def create_project(req: CreateProjectRequest, request: Request) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             example = repo_root / "examples" / req.example if req.example else None
             project = await async_store.call("create_project", req.name, example_path=example)
             await async_store.call(
@@ -1454,7 +1449,7 @@ def create_app(
     @app.post("/api/projects/clone")
     async def clone_project(req: CloneProjectRequest, request: Request) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             return await async_store.call("clone_project", req.name, req.remote_url, req.branch)
         except Exception as exc:
             raise _http_error(exc) from exc
@@ -1471,7 +1466,7 @@ def create_app(
         project_id: str, req: ProjectUpdateRequest, request: Request
     ) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             project = await async_store.call("update_project", project_id, req.name)
             await async_store.call(
                 "append_audit_event",
@@ -1487,7 +1482,7 @@ def create_app(
     @app.delete("/api/projects/{project_id}", status_code=204)
     async def delete_project(project_id: str, request: Request) -> None:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             await async_store.call("delete_project", project_id)
             await async_store.call(
                 "append_audit_event",
@@ -1553,7 +1548,7 @@ def create_app(
     @app.get("/api/secrets")
     async def list_secrets(request: Request) -> list[dict[str, Any]]:
         try:
-            _require_role(request, "admin")
+            _require_role(request, "admin", auth_required=auth_required)
             return await async_store.call("list_secrets")
         except Exception as exc:
             raise _http_error(exc) from exc
@@ -1565,7 +1560,7 @@ def create_app(
 
     @app.put("/api/secrets/{name}")
     async def put_secret(name: str, req: SecretRequest, request: Request) -> dict[str, Any]:
-        _require_role(request, "admin")
+        _require_role(request, "admin", auth_required=auth_required)
         if name != req.name:
             raise HTTPException(status_code=400, detail="Secret name mismatch")
         try:
@@ -1580,7 +1575,7 @@ def create_app(
     @app.post("/api/secrets/rotate-key")
     async def rotate_secret_key(request: Request) -> dict[str, Any]:
         """Re-encrypt registered secrets with the active out-of-band key."""
-        _require_role(request, "admin")
+        _require_role(request, "admin", auth_required=auth_required)
         try:
             result = await async_store.call("rotate_secrets")
             await async_store.call(
@@ -1598,7 +1593,7 @@ def create_app(
     @app.delete("/api/secrets/{secret_id}", status_code=204)
     async def delete_secret(secret_id: str, request: Request) -> None:
         try:
-            _require_role(request, "admin")
+            _require_role(request, "admin", auth_required=auth_required)
             await async_store.call("delete_secret", secret_id)
             await async_store.call(
                 "append_audit_event", _audit_actor(request), "secret.deleted", "secret", secret_id
@@ -1611,7 +1606,7 @@ def create_app(
         project_id: str, req: ScheduleRequest, request: Request
     ) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             result = await async_store.call("create_schedule", project_id, **req.model_dump())
             await async_store.call(
                 "append_audit_event",
@@ -1630,7 +1625,7 @@ def create_app(
     ) -> dict[str, Any]:
         """Create a schedule using the normative global administration route."""
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             await async_store.call("get_project_row", req.project_id)
             payload = req.model_dump(exclude={"project_id"})
             result = await async_store.call("create_schedule", req.project_id, **payload)
@@ -1651,7 +1646,7 @@ def create_app(
     ) -> dict[str, Any]:
         """Submit a schedule immediately while preserving its runtime profile policy."""
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             schedule = await async_store.call("get_schedule", schedule_id)
             if schedule["project_id"] != project_id:
                 raise ValueError("Schedule does not belong to this project")
@@ -1661,7 +1656,7 @@ def create_app(
                 else None
             )
             if profile and profile.get("is_protected"):
-                _require_role(request, "admin")
+                _require_role(request, "admin", auth_required=auth_required)
             record = await runtime_dispatch.submit(
                 project_id, schedule["mode"], [], profile=profile
             )
@@ -1689,7 +1684,7 @@ def create_app(
         schedule_id: str, req: ScheduleUpdateRequest, request: Request
     ) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             result = await async_store.call(
                 "update_schedule", schedule_id, req.model_dump(exclude_none=True)
             )
@@ -1708,7 +1703,7 @@ def create_app(
     @app.delete("/api/schedules/{schedule_id}", status_code=204)
     async def delete_schedule(schedule_id: str, request: Request) -> None:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             await async_store.call("delete_schedule", schedule_id)
             await async_store.call(
                 "append_audit_event",
@@ -1747,7 +1742,7 @@ def create_app(
         project_id: str, path: str, req: FileWriteRequest, request: Request
     ) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             project = await _project_path(project_id)
             info = await asyncio.to_thread(
                 resources.write_text, project, path, req.content, req.etag
@@ -1761,7 +1756,7 @@ def create_app(
         project_id: str, req: FileDirectoryRequest, request: Request
     ) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             project = await _project_path(project_id)
             info = await asyncio.to_thread(resources.create_directory, project, req.path)
             return info.__dict__
@@ -1773,7 +1768,7 @@ def create_app(
         project_id: str, req: FileRenameRequest, request: Request
     ) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             project = await _project_path(project_id)
             info = await asyncio.to_thread(
                 resources.rename, project, req.old_path, req.new_path, req.etag
@@ -1787,7 +1782,7 @@ def create_app(
         project_id: str, path: str, request: Request, etag: str | None = None
     ) -> None:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             project = await _project_path(project_id)
             await asyncio.to_thread(resources.delete, project, path, etag)
         except Exception as exc:
@@ -1798,7 +1793,7 @@ def create_app(
         project_id: str, document: PipelineDocument, request: Request
     ) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             saved = await async_store.call("save_pipeline", project_id, document)
             event = await async_store.call(
                 "append_collaboration_event",
@@ -1909,7 +1904,7 @@ def create_app(
     @app.post("/api/projects/{project_id}/generate")
     async def generate(project_id: str, request: Request) -> GenerationResult:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             request_metrics["codegen_total"] += 1
             result = await async_store.call("generate", project_id, write=True)
             return result
@@ -1919,7 +1914,7 @@ def create_app(
     @app.post("/api/projects/{project_id}/generate-sql")
     async def generate_sql(project_id: str, request: Request) -> GenerationResult:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             request_metrics["codegen_total"] += 1
             result = await async_store.call("generate_sql", project_id, write=True)
             return result
@@ -1948,7 +1943,7 @@ def create_app(
     async def cleanup_project_retention(project_id: str, request: Request) -> dict[str, object]:
         """Apply configured runtime-artifact retention as an administrator."""
         try:
-            _require_role(request, "admin")
+            _require_role(request, "admin", auth_required=auth_required)
             project = await _project_path(project_id)
             policy = RetentionPolicy.from_env()
             return await asyncio.to_thread(cleanup_runtime_artifacts, project, policy)
@@ -1989,7 +1984,7 @@ def create_app(
         project_id: str, request: Request, req: DryRunRequest | None = None
     ) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             result = await async_store.call("generate", project_id, write=True)
             if any(p.severity == "error" for p in result.problems):
                 return {"ok": False, "problems": [p.model_dump() for p in result.problems]}
@@ -2005,7 +2000,7 @@ def create_app(
     @app.post("/api/projects/{project_id}/runs")
     async def start_run(project_id: str, req: RunRequest, request: Request) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             result = await async_store.call("generate", project_id, write=True)
             if any(p.severity == "error" for p in result.problems):
                 raise HTTPException(
@@ -2017,7 +2012,7 @@ def create_app(
                 else None
             )
             if profile and profile.get("is_protected"):
-                _require_role(request, "admin")
+                _require_role(request, "admin", auth_required=auth_required)
             record = await runtime_dispatch.submit(
                 project_id,
                 req.mode,
@@ -2096,7 +2091,7 @@ def create_app(
         project_id: str, run_id: str, req: NodeSnapshotRequest, request: Request
     ) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             run = await async_store.call("get_run", run_id)
             if run["project_id"] != project_id:
                 raise ValueError("Run does not belong to this project")
@@ -2306,7 +2301,7 @@ def create_app(
 
     @app.post("/api/runs/{run_id}/cancel")
     async def cancel_run(run_id: str, request: Request) -> dict[str, Any]:
-        _require_role(request, "editor")
+        _require_role(request, "editor", auth_required=auth_required)
         cancelled = await runtime_dispatch.cancel(run_id)
         await async_store.call(
             "append_audit_event",
@@ -2514,7 +2509,7 @@ def create_app(
         project_id: str, req: HistoryCheckpointRequest, request: Request
     ) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             return await async_store.call("create_history_checkpoint", project_id, req.name)
         except Exception as exc:
             raise _http_error(exc) from exc
@@ -2541,7 +2536,7 @@ def create_app(
         project_id: str, snapshot_id: str, request: Request
     ) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             restored = await async_store.call("restore_history", project_id, snapshot_id)
             return restored.model_dump(by_alias=True)
         except Exception as exc:
@@ -2574,7 +2569,7 @@ def create_app(
     @app.post("/api/projects/{project_id}/git/init")
     async def git_init(project_id: str, request: Request) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             return await _git_call("init", project_id)
         except Exception as exc:
             raise _http_error(exc) from exc
@@ -2629,7 +2624,7 @@ def create_app(
     @app.post("/api/projects/{project_id}/git/commit")
     async def git_commit(project_id: str, req: CommitRequest, request: Request) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             return await _git_call("commit", project_id, req.message)
         except Exception as exc:
             raise _http_error(exc) from exc
@@ -2646,7 +2641,7 @@ def create_app(
         project_id: str, req: RemoteRequest, request: Request
     ) -> dict[str, str]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             return await _git_call("set_remote", project_id, req.name, req.url)
         except Exception as exc:
             raise _http_error(exc) from exc
@@ -2654,7 +2649,7 @@ def create_app(
     @app.post("/api/projects/{project_id}/git/fetch")
     async def git_fetch(project_id: str, req: GitSyncRequest, request: Request) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             return await _git_call("fetch", project_id, req.remote)
         except Exception as exc:
             raise _http_error(exc) from exc
@@ -2662,7 +2657,7 @@ def create_app(
     @app.post("/api/projects/{project_id}/git/pull")
     async def git_pull(project_id: str, req: GitSyncRequest, request: Request) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             return await _git_call("pull", project_id, req.remote, req.branch)
         except Exception as exc:
             raise _http_error(exc) from exc
@@ -2670,7 +2665,7 @@ def create_app(
     @app.post("/api/projects/{project_id}/git/push")
     async def git_push(project_id: str, req: GitSyncRequest, request: Request) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             result = await _git_call("push", project_id, req.remote, req.branch)
             await async_store.call(
                 "append_audit_event",
@@ -2687,7 +2682,7 @@ def create_app(
     @app.post("/api/projects/{project_id}/git/review")
     async def git_review(project_id: str, req: ReviewRequest, request: Request) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             remotes = await _git_call("remotes", project_id)
             if req.remote not in remotes:
                 raise ValueError(f"Git remote {req.remote!r} is not configured")
@@ -2781,7 +2776,7 @@ def create_app(
     @app.post("/api/projects/{project_id}/git/tags")
     async def git_create_tag(project_id: str, req: TagRequest, request: Request) -> list[str]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             return await _git_call("create_tag", project_id, req.name, req.message)
         except Exception as exc:
             raise _http_error(exc) from exc
@@ -2799,7 +2794,7 @@ def create_app(
         project_id: str, req: StashRequest, request: Request
     ) -> dict[str, Any] | list[str]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             return await _git_call("stash", project_id, req.action, req.message)
         except Exception as exc:
             raise _http_error(exc) from exc
@@ -2823,7 +2818,7 @@ def create_app(
         project_id: str, req: ConflictResolutionRequest, request: Request
     ) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             return await _git_call("resolve_conflict", project_id, req.path, req.strategy)
         except Exception as exc:
             raise _http_error(exc) from exc
@@ -2833,7 +2828,7 @@ def create_app(
         project_id: str, request: Request, req: GitPathsRequest | None = None
     ) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             return await _git_call("stage", project_id, req.paths if req else None)
         except Exception as exc:
             raise _http_error(exc) from exc
@@ -2843,7 +2838,7 @@ def create_app(
         project_id: str, request: Request, req: GitPathsRequest | None = None
     ) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             return await _git_call("unstage", project_id, req.paths if req else None)
         except Exception as exc:
             raise _http_error(exc) from exc
@@ -2851,7 +2846,7 @@ def create_app(
     @app.post("/api/projects/{project_id}/git/branches")
     async def git_branch(project_id: str, req: BranchRequest, request: Request) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             return await _git_call("create_branch", project_id, req.name)
         except Exception as exc:
             raise _http_error(exc) from exc
@@ -2861,7 +2856,7 @@ def create_app(
         project_id: str, req: BranchRequest, request: Request
     ) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             return await _git_call("switch_branch", project_id, req.name)
         except Exception as exc:
             raise _http_error(exc) from exc
@@ -2876,7 +2871,7 @@ def create_app(
         project_id: str, req: BranchDeleteRequest, request: Request
     ) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             return await _git_call("delete_branch", project_id, req.name, force=req.force)
         except Exception as exc:
             raise _http_error(exc) from exc
@@ -3033,7 +3028,7 @@ def create_app(
     @app.post("/api/debug/redaction-preview")
     async def redaction_preview(req: RedactionPreviewRequest, request: Request) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             registered: dict[str, str] = {}
             for item in await async_store.call("list_secrets"):
                 try:
@@ -3281,7 +3276,7 @@ def create_app(
     @app.get("/api/projects/{project_id}/debug/schema-timeline")
     async def debug_schema_timeline(project_id: str, request: Request) -> dict[str, Any]:
         try:
-            _require_role(request, "editor")
+            _require_role(request, "editor", auth_required=auth_required)
             runs = await async_store.call("list_runs", project_id)
             snapshots = await asyncio.gather(
                 *(async_store.call("get_node_snapshots", run["id"]) for run in runs)
@@ -3318,5 +3313,12 @@ def create_app(
         return schema
 
     app.openapi = cast(Any, openapi_with_versioned_aliases)  # type: ignore[method-assign]
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://127.0.0.1:8787", "http://localhost:8787"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     return app
