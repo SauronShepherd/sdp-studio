@@ -1,8 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
-from starlette.websockets import WebSocketDisconnect
-
 from sdpstudio_server.app import create_app
+from starlette.websockets import WebSocketDisconnect
 
 
 def _clear(monkeypatch):
@@ -50,7 +49,9 @@ def test_websocket_requires_auth_with_local_auth(monkeypatch, tmp_path):
     monkeypatch.setenv("SDPSTUDIO_AUTH_SIGNING_KEY", "live-wiring-signing-key")
     monkeypatch.setenv("SDPSTUDIO_ADMIN_PASSWORD", "admin-test-password")
     client = TestClient(create_app(tmp_path))
-    with pytest.raises(WebSocketDisconnect) as exc:
-        with client.websocket_connect("/ws/runs/missing", subprotocols=["sdpstudio.v1"]):
-            pass
+    with (
+        pytest.raises(WebSocketDisconnect) as exc,
+        client.websocket_connect("/ws/runs/missing", subprotocols=["sdpstudio.v1"]),
+    ):
+        pass
     assert exc.value.code == 4401
