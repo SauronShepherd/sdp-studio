@@ -13,15 +13,21 @@ def test_postgres_claim_path_uses_skip_locked():
     assert "FOR UPDATE SKIP LOCKED" in source
 
 
-def test_durable_worker_claims_and_executes_once(tmp_path):
+def test_durable_worker_claims_executes_and_releases_successful_lease(tmp_path):
     store = DataStore(tmp_path)
     project = store.create_project("worker")
     record = RunRecord(project_id=project["id"], status="queued")
     store.create_run(record)
     seen = []
-    worker = DurableRunWorker(store, "worker-a", lambda item: seen.append(item["id"]))
+
+    def execute(item):
+        seen.append(item["id"])
+        store.transition_run(item["id"], "preparing")
+
+    worker = DurableRunWorker(store, "worker-a", execute)
     assert worker.poll_once()["id"] == record.id
     assert seen == [record.id]
+    assert store.get_run(record.id)["claim_token"] is None
     assert worker.poll_once() is None
 
 
