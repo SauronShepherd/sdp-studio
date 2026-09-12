@@ -1,0 +1,41 @@
+name: scratch-auth-live-lint
+
+on:
+  push:
+    branches: [scratch/2026-09-12-auth-live-lint]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: pip install ruff==0.16.7
+      - name: Apply exact lint fixes
+        run: |
+          ruff check --fix --select I001 python/sdpstudio_server/app.py tests/test_auth_live_wiring.py
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('tests/test_auth_live_wiring.py')
+          s = p.read_text(encoding='utf-8')
+          old = '''    with pytest.raises(WebSocketDisconnect) as exc:\n        with client.websocket_connect("/ws/runs/missing", subprotocols=["sdpstudio.v1"]):\n            pass\n'''
+          new = '''    with (\n        pytest.raises(WebSocketDisconnect) as exc,\n        client.websocket_connect("/ws/runs/missing", subprotocols=["sdpstudio.v1"]),\n    ):\n        pass\n'''
+          assert s.count(old) == 1
+          p.write_text(s.replace(old, new, 1), encoding='utf-8', newline='\n')
+          PY
+          ruff check python/sdpstudio_server/app.py tests/test_auth_live_wiring.py
+      - name: Commit candidate
+        run: |
+          rm .github/workflows/scratch-auth-live-lint.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git diff --cached --check
+          git commit -m "style: satisfy auth live wiring lint"
+          git push origin HEAD:scratch/2026-09-12-auth-live-lint
