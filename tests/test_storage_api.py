@@ -960,8 +960,7 @@ def test_websocket_auth_uses_subprotocol_not_query_string(tmp_path: Path, monkey
     token = "team-secret-token"
     monkeypatch.setenv("SDPSTUDIO_AUTH_TOKEN", token)
     client = TestClient(create_app(tmp_path))
-    headers = {"Authorization": f"Bearer {token}"}
-    project = client.post("/api/projects", json={"name": "secure-collab"}, headers=headers).json()
+    project = client.app.state.store.create_project("secure-collab")
     encoded = base64.urlsafe_b64encode(token.encode("utf-8")).decode("ascii").rstrip("=")
     with client.websocket_connect(
         f"/ws/projects/{project['id']}",
