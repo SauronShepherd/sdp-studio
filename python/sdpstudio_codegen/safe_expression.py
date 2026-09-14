@@ -148,9 +148,9 @@ def _call_kind(node: ast.Call) -> str:
             "Custom code calls must use public DataFrame or pyspark.sql.functions APIs"
         )
     if isinstance(func.value, ast.Name):
+        if func.value.id == "F" and func.attr in _BLOCKED_FUNCTIONS:
+            raise ValueError(f"pyspark.sql.functions call is not allowed: F.{func.attr}")
         if func.value.id == "F":
-            if func.attr in _BLOCKED_FUNCTIONS:
-                raise ValueError(f"pyspark.sql.functions call is not allowed: F.{func.attr}")
             return "column"
         if func.value.id == "df" and func.attr in _ALLOWED_DATAFRAME_METHODS:
             _validate_dataframe_call(node, func.attr)
