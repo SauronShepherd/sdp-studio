@@ -1314,7 +1314,8 @@ def test_versioned_api_alias_supports_project_and_catalog_routes(tmp_path: Path)
     assert catalog.json()["catalog"] == "local"
 
 
-def test_catalog_route_queries_runtime_profile_command(tmp_path: Path):
+def test_catalog_route_queries_runtime_profile_command(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("SDPSTUDIO_CATALOG_COMMAND_ALLOWLIST", sys.executable)
     client = TestClient(create_app(tmp_path))
     project = client.post("/api/projects", json={"name": "runtime-catalog"}).json()
     profile = client.post(

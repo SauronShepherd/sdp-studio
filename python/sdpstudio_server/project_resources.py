@@ -19,9 +19,11 @@ class ProjectResourceService:
         self,
         filesystem: ProjectFileSystem | None = None,
         workspace_root: Path | None = None,
+        catalog_command_allowlist: tuple[str, ...] = (),
     ) -> None:
         self.filesystem = filesystem or ProjectFileSystem()
         self.workspace_root = workspace_root.resolve() if workspace_root else None
+        self.catalog_command_allowlist = frozenset(catalog_command_allowlist)
         self._runtime_catalog_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
     def resolve_project_path(self, row: dict[str, Any]) -> Path:
@@ -65,6 +67,9 @@ class ProjectResourceService:
         if isinstance(command, list) and command and all(isinstance(item, str) for item in command):
             if any("\x00" in item for item in command):
                 raise RuntimeError("SDPS-CATALOG-002: catalog command contains invalid arguments")
+            executable = command[0]
+            if executable not in self.catalog_command_allowlist:
+                raise RuntimeError("SDPS-CATALOG-006: runtime catalog command is not allowlisted")
             from sdpstudio_runners.process import run_process
 
             process = asyncio.run(

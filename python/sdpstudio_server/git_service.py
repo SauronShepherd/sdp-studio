@@ -10,20 +10,8 @@ from typing import Any
 MAX_GIT_TEXT_BYTES = 1_000_000
 
 
-def _bounded_text(value: str) -> str:
-    encoded = value.encode("utf-8")
-    if len(encoded) <= MAX_GIT_TEXT_BYTES:
-        return value
-    marker = b"\n[SDPSTUDIO-GIT-OUTPUT-TRUNCATED]\n"
-    return (encoded[: MAX_GIT_TEXT_BYTES - len(marker)] + marker).decode("utf-8", errors="ignore")
-
-
-def _git(path: Path, args: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
-    disabled_hooks = path / ".sdpstudio" / "disabled-hooks"
-    disabled_hooks.parent.mkdir(parents=True, exist_ok=True)
-    # Do not leak application credentials or unrelated process configuration
-    # into repository operations. Preserve only variables Git uses for binary
-    # discovery, locale, and explicitly configured non-secret SSH behavior.
+def _git_environment() -> dict[str, str]:
+    """Return the minimal environment permitted to reach Git subprocesses."""
     environment = {
         key: value
         for key, value in os.environ.items()
@@ -42,6 +30,24 @@ def _git(path: Path, args: list[str], check: bool = True) -> subprocess.Complete
         }
     }
     environment["GIT_TERMINAL_PROMPT"] = "0"
+    return environment
+
+
+def _bounded_text(value: str) -> str:
+    encoded = value.encode("utf-8")
+    if len(encoded) <= MAX_GIT_TEXT_BYTES:
+        return value
+    marker = b"\n[SDPSTUDIO-GIT-OUTPUT-TRUNCATED]\n"
+    return (encoded[: MAX_GIT_TEXT_BYTES - len(marker)] + marker).decode("utf-8", errors="ignore")
+
+
+def _git(path: Path, args: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
+    disabled_hooks = path / ".sdpstudio" / "disabled-hooks"
+    disabled_hooks.parent.mkdir(parents=True, exist_ok=True)
+    # Do not leak application credentials or unrelated process configuration
+    # into repository operations. Preserve only variables Git uses for binary
+    # discovery, locale, and explicitly configured non-secret SSH behavior.
+    environment = _git_environment()
     return subprocess.run(
         ["git", "-C", str(path), "-c", f"core.hooksPath={disabled_hooks}", *args],
         check=check,
@@ -398,7 +404,13 @@ def clone(remote_url: str, target: Path, branch: str | None = None) -> dict[str,
         args.extend(["--branch", branch])
     args.extend(["--", remote_url, str(target)])
     result = subprocess.run(
-        args, check=False, capture_output=True, text=True, shell=False, timeout=180
+        args,
+        check=False,
+        capture_output=True,
+        text=True,
+        shell=False,
+        timeout=180,
+        env=_git_environment(),
     )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip())

@@ -44,7 +44,9 @@ def test_runtime_catalog_is_cached_and_separate_from_filesystem_discovery():
 
 
 def test_runtime_catalog_can_query_an_explicit_runtime_command(tmp_path: Path):
-    service = ProjectResourceService(workspace_root=tmp_path)
+    service = ProjectResourceService(
+        workspace_root=tmp_path, catalog_command_allowlist=(sys.executable,)
+    )
     profile = {
         "id": "runtime-command",
         "adapter": "spark-connect",
@@ -62,7 +64,9 @@ def test_runtime_catalog_can_query_an_explicit_runtime_command(tmp_path: Path):
 
 
 def test_runtime_catalog_rejects_invalid_command_output(tmp_path: Path):
-    service = ProjectResourceService(workspace_root=tmp_path)
+    service = ProjectResourceService(
+        workspace_root=tmp_path, catalog_command_allowlist=(sys.executable,)
+    )
     profile = {
         "id": "bad-command",
         "config": {"catalog_command": [sys.executable, "-c", "print('nope')"]},

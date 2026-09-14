@@ -777,7 +777,10 @@ def create_app(
     external_principals = ExternalPrincipalStore(store._connect)
     async_store = AsyncStore(store)
 
-    resources = ProjectResourceService(workspace_root=store.projects_root)
+    resources = ProjectResourceService(
+        workspace_root=store.projects_root,
+        catalog_command_allowlist=settings.catalog_command_allowlist,
+    )
 
     async def _project_path(project_id: str) -> Path:
         return resources.resolve_project_path(await async_store.call("get_project_row", project_id))
@@ -1933,11 +1936,16 @@ def create_app(
             raise _http_error(exc) from exc
 
     @app.get("/api/projects/{project_id}/catalog")
-    async def catalog(project_id: str, runtime_profile_id: str | None = None) -> dict[str, Any]:
+    async def catalog(
+        project_id: str, request: Request, runtime_profile_id: str | None = None
+    ) -> dict[str, Any]:
         try:
             project = await _project_path(project_id)
             if runtime_profile_id:
                 profile = await async_store.call("get_runtime_profile", runtime_profile_id)
+                config = profile.get("config") if isinstance(profile, dict) else None
+                if isinstance(config, dict) and config.get("catalog_command") is not None:
+                    _require_role(request, "admin", auth_required=auth_required)
                 return await asyncio.to_thread(resources.runtime_catalog, profile, project)
             return await asyncio.to_thread(resources.catalog, project)
         except Exception as exc:

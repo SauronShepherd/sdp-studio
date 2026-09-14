@@ -17,6 +17,8 @@ from sdpstudio_core.models import (
     SourceRange,
 )
 
+from .safe_expression import validate_custom_dataframe_expression
+
 
 def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -223,6 +225,7 @@ def _transform_expr(node: Any, parents: dict[str, str]) -> str:
         expression = code.removeprefix("return ").strip() if code.startswith("return ") else code
         if not expression or "\n" in expression or expression.startswith("return"):
             raise ValueError("Custom code must be a single expression or 'return <expression>'")
+        validate_custom_dataframe_expression(expression)
         # Keep the custom boundary explicit while allowing a safe expression
         # to participate in normal downstream code generation.
         return f"(lambda df: ({expression}))({parent})"
