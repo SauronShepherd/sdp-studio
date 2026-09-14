@@ -17,8 +17,8 @@ def test_typed_dataframe_expressions_remain_allowed(expression: str) -> None:
 @pytest.mark.parametrize(
     "expression",
     [
-        'F.expr("reflect(\'java.lang.System\',\'getenv\',\'AWS_SECRET_ACCESS_KEY\')")',
-        'df.selectExpr("java_method(\'java.lang.System\',\'getProperty\',\'user.name\')")',
+        "F.expr(\"reflect('java.lang.System','getenv','AWS_SECRET_ACCESS_KEY')\")",
+        "df.selectExpr(\"java_method('java.lang.System','getProperty','user.name')\")",
         'df.filter("id > 0")',
         'df.where("id " + "> 0")',
         (
