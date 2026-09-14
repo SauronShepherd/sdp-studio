@@ -22,6 +22,7 @@ class ServerSettings:
     oidc_userinfo_endpoint: str = ""
     oidc_jwks_uri: str = ""
     cookie_secure: bool = False
+    catalog_command_allowlist: tuple[str, ...] = ()
 
     @classmethod
     def from_env(cls, data_root: Path | None = None) -> ServerSettings:
@@ -48,4 +49,9 @@ class ServerSettings:
             oidc_userinfo_endpoint=os.environ.get("SDPSTUDIO_OIDC_USERINFO_ENDPOINT", ""),
             oidc_jwks_uri=os.environ.get("SDPSTUDIO_OIDC_JWKS_URI", ""),
             cookie_secure=os.environ.get("SDPSTUDIO_COOKIE_SECURE", "0") == "1",
+            catalog_command_allowlist=tuple(
+                value.strip()
+                for value in os.environ.get("SDPSTUDIO_CATALOG_COMMAND_ALLOWLIST", "").split(",")
+                if value.strip()
+            ),
         )
