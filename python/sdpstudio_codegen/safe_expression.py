@@ -115,12 +115,11 @@ def _is_dataframe_column_subscript(node: ast.AST) -> bool:
 
 def _contains_typed_column(node: ast.AST) -> bool:
     """Return whether an expression is rooted in a typed Spark Column value."""
-    for nested in ast.walk(node):
-        if _is_dataframe_column_subscript(nested):
-            return True
-        if isinstance(nested, ast.Call) and _call_kind(nested) == "column":
-            return True
-    return False
+    return any(
+        _is_dataframe_column_subscript(nested)
+        or (isinstance(nested, ast.Call) and _call_kind(nested) == "column")
+        for nested in ast.walk(node)
+    )
 
 
 def _predicate_argument(node: ast.Call) -> ast.AST | None:
