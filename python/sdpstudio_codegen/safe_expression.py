@@ -241,7 +241,7 @@ _ALLOWED_NODES = (
 def _is_python_string_expression(node: ast.AST) -> bool:
     if isinstance(node, ast.Constant):
         return isinstance(node.value, str)
-    if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Mod)):
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add | ast.Mod):
         return _is_python_string_expression(node.left) and _is_python_string_expression(node.right)
     return False
 
