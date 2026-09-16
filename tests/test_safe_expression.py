@@ -1,5 +1,4 @@
 import pytest
-
 from sdpstudio_codegen.safe_expression import validate_custom_dataframe_expression
 
 
