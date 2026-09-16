@@ -27,6 +27,16 @@ def test_container_and_helm_deployment_are_non_root_and_probed():
     assert 'command: ["worker", "--runs-only"]' in worker
 
 
+def test_compose_requires_secret_vault_key_for_server_and_worker():
+    root = Path(__file__).parents[1]
+    compose = (root / "docker-compose.yml").read_text(encoding="utf-8")
+    required = (
+        "SDPSTUDIO_SECRET_KEY: "
+        "${SDPSTUDIO_SECRET_KEY:?Set SDPSTUDIO_SECRET_KEY before starting SDP Studio}"
+    )
+    assert compose.count(required) == 2
+
+
 def test_helm_ingress_is_optional_and_routes_to_service():
     root = Path(__file__).parents[1]
     values = (root / "deploy/helm/sdpstudio/values.yaml").read_text(encoding="utf-8")
