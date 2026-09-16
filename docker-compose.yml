@@ -12,6 +12,7 @@ services:
       SDPSTUDIO_DATA_ROOT: /data
       SDPSTUDIO_DATABASE_URL: postgresql://sdpstudio:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD before starting SDP Studio}@postgres:5432/sdpstudio
       SDPSTUDIO_AUTH_TOKEN: ${SDPSTUDIO_AUTH_TOKEN:?Set SDPSTUDIO_AUTH_TOKEN before starting SDP Studio}
+      SDPSTUDIO_SECRET_KEY: ${SDPSTUDIO_SECRET_KEY:?Set SDPSTUDIO_SECRET_KEY before starting SDP Studio}
     depends_on:
       postgres:
         condition: service_healthy
@@ -27,6 +28,7 @@ services:
       SDPSTUDIO_DATA_ROOT: /data
       SDPSTUDIO_DATABASE_URL: postgresql://sdpstudio:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD before starting SDP Studio}@postgres:5432/sdpstudio
       SDPSTUDIO_AUTH_TOKEN: ${SDPSTUDIO_AUTH_TOKEN:?Set SDPSTUDIO_AUTH_TOKEN before starting SDP Studio}
+      SDPSTUDIO_SECRET_KEY: ${SDPSTUDIO_SECRET_KEY:?Set SDPSTUDIO_SECRET_KEY before starting SDP Studio}
     depends_on:
       postgres:
         condition: service_healthy
