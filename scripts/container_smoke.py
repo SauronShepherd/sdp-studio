@@ -14,6 +14,7 @@ def run(root: Path) -> None:
     environment = os.environ.copy()
     environment.setdefault("POSTGRES_PASSWORD", "qualification-only")
     environment.setdefault("SDPSTUDIO_AUTH_TOKEN", "qualification-only")
+    environment.setdefault("SDPSTUDIO_SECRET_KEY", "qualification-only-secret-key")
     subprocess.run(
         ["docker", "compose", "config", "--quiet"], cwd=root, env=environment, check=True
     )
@@ -46,6 +47,8 @@ def run(root: Path) -> None:
             container,
             "-e",
             "SDPSTUDIO_AUTH_TOKEN=qualification-only",
+            "-e",
+            "SDPSTUDIO_SECRET_KEY=qualification-only-secret-key",
             "-p",
             "127.0.0.1:18787:8787",
             image,
