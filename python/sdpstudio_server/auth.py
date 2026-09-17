@@ -39,24 +39,18 @@ class AuthService:
     def hash_password(password: str, salt: bytes | None = None) -> str:
         if len(password) < 12:
             raise ValueError("Passwords must contain at least 12 characters")
-        # ``salt`` is retained only for the legacy test/migration signature;
-        # Argon2id generates and stores its own random salt.
+        # Retain the optional argument for call-site compatibility; Argon2id
+        # generates and stores its own random salt.
         del salt
         return AuthService._password_hasher.hash(password)
 
     @staticmethod
     def verify_password(password: str, encoded: str) -> bool:
-        if encoded.startswith("$argon2id$"):
-            try:
-                return AuthService._password_hasher.verify(encoded, password)
-            except (VerifyMismatchError, InvalidHashError, ValueError):
-                return False
+        if not encoded.startswith("$argon2id$"):
+            return False
         try:
-            payload = base64.urlsafe_b64decode(encoded.encode("ascii"))
-            salt, expected = payload[:16], payload[16:]
-            actual = hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1)
-            return hmac.compare_digest(actual, expected)
-        except (ValueError, TypeError):
+            return AuthService._password_hasher.verify(encoded, password)
+        except (VerifyMismatchError, InvalidHashError, ValueError):
             return False
 
     def add_user(self, username: str, password: str, role: str = "viewer") -> User:
