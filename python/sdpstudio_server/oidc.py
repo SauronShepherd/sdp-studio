@@ -13,9 +13,13 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 
-_active_code_verifier = __import__("contextvars").ContextVar(
-    "sdpstudio_oidc_code_verifier", default=None
-)
+def _new_code_verifier_context():
+    from contextvars import ContextVar
+
+    return ContextVar("sdpstudio_oidc_code_verifier", default=None)
+
+
+_active_code_verifier = _new_code_verifier_context()
 
 
 @dataclass(frozen=True)
