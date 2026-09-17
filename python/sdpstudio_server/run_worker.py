@@ -30,9 +30,8 @@ class DurableRunWorker:
         token = str(claimed["claim_token"])
         try:
             self.executor(claimed)
-        except Exception:
+        finally:
             self.store.release_run_claim(str(claimed["id"]), token)
-            raise
         return claimed
 
     def heartbeat(self, run_id: str, claim_token: str) -> bool:
