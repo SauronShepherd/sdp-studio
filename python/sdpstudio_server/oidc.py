@@ -13,6 +13,15 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 
+def _new_code_verifier_context():
+    from contextvars import ContextVar
+
+    return ContextVar("sdpstudio_oidc_code_verifier", default=None)
+
+
+_active_code_verifier = _new_code_verifier_context()
+
+
 @dataclass(frozen=True)
 class OIDCConfig:
     issuer: str
@@ -81,10 +90,19 @@ def discover(config: OIDCConfig, *, timeout: float = 5.0) -> OIDCConfig:
     )
 
 
-def exchange_code(config: OIDCConfig, code: str, *, timeout: float = 10.0) -> dict[str, object]:
-    """Exchange an authorization code without exposing client secrets to callers."""
+def exchange_code(
+    config: OIDCConfig,
+    code: str,
+    *,
+    code_verifier: str | None = None,
+    timeout: float = 10.0,
+) -> dict[str, object]:
+    """Exchange an authorization code using the PKCE verifier bound to its state."""
     if not config.token_endpoint:
         config = discover(config, timeout=timeout)
+    verifier = code_verifier or _active_code_verifier.get()
+    if not verifier or not 43 <= len(verifier) <= 128:
+        raise ValueError("OIDC PKCE verifier is missing or invalid")
     if not config.enabled or not config.client_secret or not config.token_endpoint:
         raise ValueError("OIDC token exchange is not configured")
     payload = urlencode(
@@ -94,6 +112,7 @@ def exchange_code(config: OIDCConfig, code: str, *, timeout: float = 10.0) -> di
             "redirect_uri": config.redirect_uri,
             "client_id": config.client_id,
             "client_secret": config.client_secret,
+            "code_verifier": verifier,
         }
     ).encode()
     request = Request(
@@ -221,8 +240,28 @@ def _validate_rs256_signature(
         raise ValueError("OIDC ID token signature was invalid") from exc
 
 
+def _pkce_code_challenge(verifier: str) -> str:
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+
+
+def _pkce_challenge_from_state(state: str) -> str:
+    try:
+        body, _signature = state.split(".", 1)
+        _created, _nonce, challenge, _return_to = (
+            base64.urlsafe_b64decode(body.encode()).decode().split(":", 3)
+        )
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise ValueError("OIDC state did not contain a PKCE challenge") from exc
+    if len(challenge) != 43 or any(
+        not (character.isalnum() or character in "-_") for character in challenge
+    ):
+        raise ValueError("OIDC state contained an invalid PKCE challenge")
+    return challenge
+
+
 class OIDCState:
-    """Signed short-lived state/nonce values for an optional OIDC flow."""
+    """Signed short-lived state/nonce values with server-held PKCE verifiers."""
 
     def __init__(self, signing_key: bytes | None = None):
         raw = signing_key or os.environ.get("SDPSTUDIO_AUTH_SIGNING_KEY", "").encode()
@@ -230,14 +269,23 @@ class OIDCState:
             raise ValueError("OIDC state signing key must contain at least 16 bytes")
         self._key = hashlib.sha256(raw).digest()
         self._used: set[str] = set()
+        self._pkce_verifiers: dict[str, str] = {}
         self._lock = Lock()
 
     def issue(self, return_to: str = "/") -> str:
         now = int(time.time())
         nonce = secrets.token_urlsafe(24)
-        body = base64.urlsafe_b64encode(f"{now}:{nonce}:{return_to}".encode()).decode()
+        verifier = secrets.token_urlsafe(64)
+        challenge = _pkce_code_challenge(verifier)
+        body = base64.urlsafe_b64encode(f"{now}:{nonce}:{challenge}:{return_to}".encode()).decode()
         signature = hmac.new(self._key, body.encode(), hashlib.sha256).hexdigest()
-        return f"{body}.{signature}"
+        state = f"{body}.{signature}"
+        with self._lock:
+            self._pkce_verifiers[state] = verifier
+            if len(self._pkce_verifiers) > 10_000:
+                for stale in list(self._pkce_verifiers)[:5_000]:
+                    self._pkce_verifiers.pop(stale, None)
+        return state
 
     def verify(self, state: str, max_age: int = 600) -> dict[str, str] | None:
         try:
@@ -245,29 +293,47 @@ class OIDCState:
             expected = hmac.new(self._key, body.encode(), hashlib.sha256).hexdigest()
             if not hmac.compare_digest(signature, expected):
                 return None
-            created, nonce, return_to = base64.urlsafe_b64decode(body).decode().split(":", 2)
+            created, nonce, challenge, return_to = (
+                base64.urlsafe_b64decode(body).decode().split(":", 3)
+            )
             if int(time.time()) - int(created) > max_age:
                 return None
-            return {"nonce": nonce, "return_to": return_to}
+            if not challenge or challenge != _pkce_code_challenge(
+                self._pkce_verifiers.get(state, "")
+            ):
+                return None
+            return {"nonce": nonce, "return_to": return_to, "code_challenge": challenge}
         except (ValueError, UnicodeDecodeError):
             return None
 
     def consume(self, state: str, max_age: int = 600) -> dict[str, str] | None:
+        _active_code_verifier.set(None)
         payload = self.verify(state, max_age)
         if payload is None:
             return None
         with self._lock:
             if state in self._used:
                 return None
+            verifier = self._pkce_verifiers.pop(state, None)
+            if verifier is None:
+                return None
             self._used.add(state)
             if len(self._used) > 10_000:
                 self._used = set(list(self._used)[-5_000:])
+        _active_code_verifier.set(verifier)
         return payload
 
 
-def authorization_url(config: OIDCConfig, state: str, nonce: str) -> str:
+def authorization_url(
+    config: OIDCConfig,
+    state: str,
+    nonce: str,
+    *,
+    code_challenge: str | None = None,
+) -> str:
     if not config.enabled:
         raise ValueError("OIDC is not configured")
+    challenge = code_challenge or _pkce_challenge_from_state(state)
     if not config.authorization_endpoint:
         try:
             config = discover(config)
@@ -289,6 +355,8 @@ def authorization_url(config: OIDCConfig, state: str, nonce: str) -> str:
                 "scope": " ".join(config.scopes),
                 "state": state,
                 "nonce": nonce,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
             }
         )
     )

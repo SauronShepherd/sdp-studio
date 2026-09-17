@@ -1,4 +1,5 @@
 import json
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from sdpstudio_server import oidc
@@ -8,19 +9,31 @@ from sdpstudio_server.oidc import OIDCConfig, OIDCState, authorization_url, vali
 def test_oidc_state_is_signed_and_expires():
     state = OIDCState(b"oidc-signing-key-1234")
     value = state.issue("/projects")
-    assert state.verify(value)["return_to"] == "/projects"
+    verified = state.verify(value)
+    assert verified["return_to"] == "/projects"
+    assert len(verified["code_challenge"]) == 43
     assert state.verify(value + "x") is None
-    assert state.consume(value) is not None
+    consumed = state.consume(value)
+    assert consumed is not None
+    assert consumed["code_challenge"] == verified["code_challenge"]
     assert state.consume(value) is None
 
 
 def test_oidc_authorization_url_has_safe_public_parameters():
     config = OIDCConfig("https://issuer.example", "client", "http://localhost/callback")
-    url = authorization_url(config, "state", "nonce")
-    assert "client_id=client" in url
-    assert "scope=openid+profile+email" in url
+    state = OIDCState(b"oidc-signing-key-1234")
+    value = state.issue("/projects")
+    payload = state.verify(value)
+    assert payload is not None
+    url = authorization_url(config, value, payload["nonce"])
+    query = parse_qs(urlparse(url).query)
+    assert query["client_id"] == ["client"]
+    assert query["scope"] == ["openid profile email"]
+    assert query["code_challenge_method"] == ["S256"]
+    assert query["code_challenge"] == [payload["code_challenge"]]
+    assert "code_verifier" not in query
     with pytest.raises(ValueError):
-        authorization_url(OIDCConfig("", "", ""), "state", "nonce")
+        authorization_url(OIDCConfig("", "", ""), value, payload["nonce"])
 
 
 class _Response:
@@ -55,12 +68,58 @@ def test_oidc_code_exchange_and_userinfo_keep_secret_out_of_requests(monkeypatch
         token_endpoint="https://issuer.example/token",
         userinfo_endpoint="https://issuer.example/userinfo",
     )
-    token = oidc.exchange_code(config, "code")
+    verifier = "v" * 64
+    token = oidc.exchange_code(config, "code", code_verifier=verifier)
     claims = oidc.fetch_userinfo(config, token["access_token"])
     assert claims["email"] == "person@example.test"
     assert calls[0][0].endswith("/token")
     assert b"super-secret" in calls[0][2]
+    assert b"code_verifier=" + verifier.encode() in calls[0][2]
     assert calls[1][1] == "Bearer access"
+
+
+def test_oidc_code_exchange_requires_pkce_verifier(monkeypatch):
+    monkeypatch.setattr(
+        oidc,
+        "urlopen",
+        lambda request, timeout=0: _Response({"access_token": "access", "token_type": "Bearer"}),
+    )
+    config = OIDCConfig(
+        "https://issuer.example",
+        "client",
+        "http://localhost/callback",
+        client_secret="super-secret",
+        token_endpoint="https://issuer.example/token",
+    )
+    with pytest.raises(ValueError, match="PKCE verifier"):
+        oidc.exchange_code(config, "code")
+
+
+def test_oidc_state_binds_pkce_verifier_to_challenge(monkeypatch):
+    calls = []
+
+    def fake_urlopen(request, timeout=0):
+        calls.append(request.data)
+        return _Response({"access_token": "access", "token_type": "Bearer"})
+
+    monkeypatch.setattr(oidc, "urlopen", fake_urlopen)
+    state = OIDCState(b"oidc-signing-key-1234")
+    value = state.issue("/projects")
+    payload = state.verify(value)
+    assert payload is not None
+    consumed = state.consume(value)
+    assert consumed is not None
+    config = OIDCConfig(
+        "https://issuer.example",
+        "client",
+        "http://localhost/callback",
+        client_secret="super-secret",
+        token_endpoint="https://issuer.example/token",
+    )
+    oidc.exchange_code(config, "code")
+    form = parse_qs(calls[0].decode())
+    verifier = form["code_verifier"][0]
+    assert oidc._pkce_code_challenge(verifier) == payload["code_challenge"]
 
 
 def test_oidc_discovery_resolves_standard_endpoints(monkeypatch):
