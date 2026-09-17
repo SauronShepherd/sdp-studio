@@ -2,20 +2,20 @@ from __future__ import annotations
 
 import base64
 import binascii
+import contextvars
 import hashlib
 import hmac
 import json
 import os
 import secrets
 import time
-from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from threading import Lock
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 
-_active_code_verifier: ContextVar[str | None] = ContextVar(
+_active_code_verifier: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "sdpstudio_oidc_code_verifier", default=None
 )
 
