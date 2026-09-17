@@ -638,10 +638,6 @@ def create_app(
 
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
-        prefix = "/api/v1"
-        if request.scope.get("path", "").startswith(prefix + "/"):
-            request.scope["path"] = "/api" + request.scope["path"][len(prefix) :]
-            request.scope["raw_path"] = request.scope["path"].encode("ascii", "ignore")
         started = monotonic()
         request_id = request.headers.get("x-request-id") or uuid4().hex
         context_token = request_id_context.set(request_id)
