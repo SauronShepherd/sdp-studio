@@ -40,6 +40,12 @@ export {
   OPENAPI_OPERATIONS,
   OPENAPI_PATHS,
 } from "./openapi.generated";
+function parseProblem(body: unknown): OpenApiProblem | undefined {
+  if (!body || typeof body !== "object") return undefined;
+  const candidate = body as Partial<OpenApiProblem>;
+  if (typeof candidate.code !== "string" || typeof candidate.message !== "string") return undefined;
+  return candidate as OpenApiProblem;
+}
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (init?.method && !["GET", "HEAD", "OPTIONS"].includes(init.method.toUpperCase()) && typeof document !== "undefined") {
@@ -47,7 +53,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     if (csrf) headers.set("x-csrf-token", decodeURIComponent(csrf));
   }
   const response = await fetch(path, { ...init, headers, credentials: "same-origin" });
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+  if (!response.ok) {
+    try {
+      const body = await response.text();
+      const problem = body ? parseProblem(JSON.parse(body)) : undefined;
+      if (problem) throw new Error(`${problem.code}: ${problem.message}`);
+    } catch (error) {
+      if (error instanceof Error && /^SDPS-[A-Z0-9-]+: /.test(error.message)) throw error;
+    }
+    throw new Error(`${response.status} ${response.statusText}`);
+  }
   if (response.status === 204) return undefined as T;
   const body = await response.text();
   return (body ? JSON.parse(body) : undefined) as T;
