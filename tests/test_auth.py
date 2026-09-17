@@ -1,3 +1,6 @@
+import base64
+import hashlib
+
 import pytest
 from fastapi import Request
 from sdpstudio_server.auth import AuthService
@@ -13,6 +16,15 @@ def test_auth_service_hashes_passwords_and_signs_roles():
     assert service.login("alice", "wrong-password") is None
     assert user.password_hash.startswith("$argon2id$")
     assert service.verify(token + "x") is None
+
+
+def test_auth_service_rejects_legacy_scrypt_hashes():
+    password = "a-long-development-password"
+    salt = b"0123456789abcdef"
+    legacy = base64.urlsafe_b64encode(
+        salt + hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1)
+    ).decode("ascii")
+    assert AuthService.verify_password(password, legacy) is False
 
 
 def test_auth_service_rejects_weak_passwords_and_roles():
