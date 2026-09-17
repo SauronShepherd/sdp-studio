@@ -277,9 +277,7 @@ class OIDCState:
         nonce = secrets.token_urlsafe(24)
         verifier = secrets.token_urlsafe(64)
         challenge = _pkce_code_challenge(verifier)
-        body = base64.urlsafe_b64encode(
-            f"{now}:{nonce}:{challenge}:{return_to}".encode()
-        ).decode()
+        body = base64.urlsafe_b64encode(f"{now}:{nonce}:{challenge}:{return_to}".encode()).decode()
         signature = hmac.new(self._key, body.encode(), hashlib.sha256).hexdigest()
         state = f"{body}.{signature}"
         with self._lock:
