@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import base64
-import binascii
-import contextvars
 import hashlib
 import hmac
 import json
@@ -15,7 +13,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 
-_active_code_verifier: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+_active_code_verifier = __import__("contextvars").ContextVar(
     "sdpstudio_oidc_code_verifier", default=None
 )
 
@@ -249,7 +247,7 @@ def _pkce_challenge_from_state(state: str) -> str:
         _created, _nonce, challenge, _return_to = (
             base64.urlsafe_b64decode(body.encode()).decode().split(":", 3)
         )
-    except (ValueError, UnicodeDecodeError, binascii.Error) as exc:
+    except (ValueError, UnicodeDecodeError) as exc:
         raise ValueError("OIDC state did not contain a PKCE challenge") from exc
     if len(challenge) != 43 or any(
         not (character.isalnum() or character in "-_") for character in challenge
@@ -303,7 +301,7 @@ class OIDCState:
             ):
                 return None
             return {"nonce": nonce, "return_to": return_to, "code_challenge": challenge}
-        except (ValueError, UnicodeDecodeError, binascii.Error):
+        except (ValueError, UnicodeDecodeError):
             return None
 
     def consume(self, state: str, max_age: int = 600) -> dict[str, str] | None:
